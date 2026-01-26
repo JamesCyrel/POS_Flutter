@@ -78,8 +78,10 @@ class DatabaseHelper {
     ''');
 
     // Create indexes for sale_items
-    await db.execute('CREATE INDEX idx_sale_items_sale_id ON sale_items(sale_id)');
-    await db.execute('CREATE INDEX idx_sale_items_product_id ON sale_items(product_id)');
+    await db
+        .execute('CREATE INDEX idx_sale_items_sale_id ON sale_items(sale_id)');
+    await db.execute(
+        'CREATE INDEX idx_sale_items_product_id ON sale_items(product_id)');
   }
 
   // ========== PRODUCT OPERATIONS ==========
@@ -229,7 +231,8 @@ class DatabaseHelper {
   }
 
   /// Get total sales for a date range
-  Future<double> getTotalSalesByDateRange(String startDate, String endDate) async {
+  Future<double> getTotalSalesByDateRange(
+      String startDate, String endDate) async {
     final db = await database;
     final result = await db.rawQuery(
       'SELECT SUM(total) as total FROM sales WHERE date >= ? AND date <= ?',
@@ -242,7 +245,8 @@ class DatabaseHelper {
   }
 
   /// Get all sales for a date range
-  Future<List<Map<String, dynamic>>> getSalesByDateRange(String startDate, String endDate) async {
+  Future<List<Map<String, dynamic>>> getSalesByDateRange(
+      String startDate, String endDate) async {
     final db = await database;
     return await db.query(
       'sales',
@@ -253,7 +257,8 @@ class DatabaseHelper {
   }
 
   /// Get products sold in a date range
-  Future<List<Map<String, dynamic>>> getProductsSoldInRange(String startDate, String endDate) async {
+  Future<List<Map<String, dynamic>>> getProductsSoldInRange(
+      String startDate, String endDate) async {
     final db = await database;
     return await db.rawQuery('''
       SELECT 
@@ -278,24 +283,24 @@ class DatabaseHelper {
     List<Map<String, dynamic>> cartItems,
   ) async {
     final db = await database;
-    
+
     return await db.transaction((txn) async {
       // Validate stock availability for all items first
       for (final item in cartItems) {
         final productId = item['product_id'] as int;
         final requestedQuantity = item['quantity'] as int;
-        
+
         // Get current stock
         final productResult = await txn.query(
           'products',
           where: 'id = ?',
           whereArgs: [productId],
         );
-        
+
         if (productResult.isEmpty) {
           throw Exception('Product with ID $productId not found');
         }
-        
+
         final currentStock = productResult.first['quantity'] as int;
         if (currentStock < requestedQuantity) {
           throw Exception(
@@ -303,19 +308,19 @@ class DatabaseHelper {
           );
         }
       }
-      
+
       // Create sale record
       final saleId = await txn.insert('sales', {
         'total': total,
         'date': date,
       });
-      
+
       // Process each cart item
       for (final item in cartItems) {
         final productId = item['product_id'] as int;
         final quantity = item['quantity'] as int;
         final price = item['price'] as double;
-        
+
         // Add sale item
         await txn.insert('sale_items', {
           'sale_id': saleId,
@@ -323,27 +328,28 @@ class DatabaseHelper {
           'quantity': quantity,
           'price': price,
         });
-        
+
         // Update product stock (with validation)
         final productResult = await txn.query(
           'products',
           where: 'id = ?',
           whereArgs: [productId],
         );
-        
+
         if (productResult.isEmpty) {
-          throw Exception('Product with ID $productId not found during stock update');
+          throw Exception(
+              'Product with ID $productId not found during stock update');
         }
-        
+
         final currentStock = productResult.first['quantity'] as int;
         final newQuantity = currentStock - quantity;
-        
+
         if (newQuantity < 0) {
           throw Exception(
             'Stock validation failed. Product ID $productId would have negative stock',
           );
         }
-        
+
         await txn.update(
           'products',
           {'quantity': newQuantity},
@@ -351,7 +357,7 @@ class DatabaseHelper {
           whereArgs: [productId],
         );
       }
-      
+
       return saleId;
     });
   }
@@ -362,5 +368,3 @@ class DatabaseHelper {
     await db.close();
   }
 }
-
-
