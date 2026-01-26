@@ -15,15 +15,15 @@ class ReportsScreen extends StatefulWidget {
 class _ReportsScreenState extends State<ReportsScreen> {
   // Selected date (default: today)
   DateTime _selectedDate = DateTime.now();
-  
+
   // Report type: 'daily', 'weekly', 'monthly'
   String _reportType = 'daily';
-  
+
   // Sales data
   List<Map<String, dynamic>> _sales = [];
   List<Map<String, dynamic>> _productsSold = [];
   double _totalSales = 0.0;
-  
+
   // Loading state
   bool _isLoading = true;
 
@@ -47,28 +47,34 @@ class _ReportsScreenState extends State<ReportsScreen> {
       endDate = startDate;
     } else if (_reportType == 'weekly') {
       // Get start of week (Monday)
-      final startOfWeek = _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
+      final startOfWeek =
+          _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
       // Get end of week (Sunday)
       final endOfWeek = startOfWeek.add(const Duration(days: 6));
       startDate = DateFormat('yyyy-MM-dd').format(startOfWeek);
       endDate = DateFormat('yyyy-MM-dd').format(endOfWeek);
-    } else { // monthly
+    } else {
+      // monthly
       // Get start of month
       final startOfMonth = DateTime(_selectedDate.year, _selectedDate.month, 1);
       // Get end of month
-      final endOfMonth = DateTime(_selectedDate.year, _selectedDate.month + 1, 0);
+      final endOfMonth =
+          DateTime(_selectedDate.year, _selectedDate.month + 1, 0);
       startDate = DateFormat('yyyy-MM-dd').format(startOfMonth);
       endDate = DateFormat('yyyy-MM-dd').format(endOfMonth);
     }
 
     // Get total sales
-    final total = await DatabaseHelper.instance.getTotalSalesByDateRange(startDate, endDate);
-    
+    final total = await DatabaseHelper.instance
+        .getTotalSalesByDateRange(startDate, endDate);
+
     // Get all sales for the date range
-    final sales = await DatabaseHelper.instance.getSalesByDateRange(startDate, endDate);
-    
+    final sales =
+        await DatabaseHelper.instance.getSalesByDateRange(startDate, endDate);
+
     // Get products sold
-    final productsSold = await DatabaseHelper.instance.getProductsSoldInRange(startDate, endDate);
+    final productsSold = await DatabaseHelper.instance
+        .getProductsSoldInRange(startDate, endDate);
 
     setState(() {
       _totalSales = total;
@@ -103,9 +109,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
       initialDate: _selectedDate,
       firstDate: DateTime(2020),
       lastDate: DateTime.now(),
-      initialDatePickerMode: _reportType == 'monthly'
-          ? DatePickerMode.year
-          : DatePickerMode.day,
+      initialDatePickerMode:
+          _reportType == 'monthly' ? DatePickerMode.year : DatePickerMode.day,
     );
 
     if (picked != null) {
@@ -164,7 +169,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         children: [
                           const Text(
                             'Date:',
-                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                                fontSize: 20, fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(width: 16),
                           ElevatedButton.icon(
@@ -172,10 +178,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             icon: const Icon(Icons.calendar_today),
                             label: Text(
                               _reportType == 'daily'
-                                  ? DateFormat('MMM dd, yyyy').format(_selectedDate)
+                                  ? DateFormat('MMM dd, yyyy')
+                                      .format(_selectedDate)
                                   : _reportType == 'weekly'
                                       ? 'Week of ${DateFormat('MMM dd, yyyy').format(_selectedDate)}'
-                                      : DateFormat('MMMM yyyy').format(_selectedDate),
+                                      : DateFormat('MMMM yyyy')
+                                          .format(_selectedDate),
                               style: const TextStyle(fontSize: 18),
                             ),
                           ),
@@ -259,87 +267,87 @@ class _ReportsScreenState extends State<ReportsScreen> {
   /// Build sales transactions section
   Widget _buildSalesTransactions(BuildContext context) {
     return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.all(16.0),
-                              child: Text(
-                                'Sales Transactions',
-                                style: TextStyle(
-                                  fontSize: ResponsiveHelper.getFontSize(
-                                    context,
-                                    tabletSize: 22,
-                                    phoneSize: 18,
-                                  ),
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Text(
+            'Sales Transactions',
+            style: TextStyle(
+              fontSize: ResponsiveHelper.getFontSize(
+                context,
+                tabletSize: 22,
+                phoneSize: 18,
+              ),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        Expanded(
+          child: _sales.isEmpty
+              ? Center(
+                  child: Text(
+                    'No sales for this date',
+                    style: TextStyle(
+                      fontSize: ResponsiveHelper.getFontSize(
+                        context,
+                        tabletSize: 18,
+                        phoneSize: 16,
+                      ),
+                      color: Colors.grey,
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: ResponsiveHelper.isTablet(context) ? 16 : 8,
+                  ),
+                  itemCount: _sales.length,
+                  itemBuilder: (context, index) {
+                    final sale = _sales[index];
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        title: Text(
+                          'Sale #${sale['id']}',
+                          style: TextStyle(
+                            fontSize: ResponsiveHelper.getFontSize(
+                              context,
+                              tabletSize: 18,
+                              phoneSize: 16,
                             ),
-                            Expanded(
-                              child: _sales.isEmpty
-                                  ? Center(
-                                      child: Text(
-                                        'No sales for this date',
-                                        style: TextStyle(
-                                          fontSize: ResponsiveHelper.getFontSize(
-                                            context,
-                                            tabletSize: 18,
-                                            phoneSize: 16,
-                                          ),
-                                          color: Colors.grey,
-                                        ),
-                                      ),
-                                    )
-                                  : ListView.builder(
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: ResponsiveHelper.isTablet(context) ? 16 : 8,
-                                      ),
-                                      itemCount: _sales.length,
-                                      itemBuilder: (context, index) {
-                                        final sale = _sales[index];
-                                        return Card(
-                                          margin: const EdgeInsets.only(bottom: 8),
-                                          child: ListTile(
-                                            title: Text(
-                                              'Sale #${sale['id']}',
-                                              style: TextStyle(
-                                                fontSize: ResponsiveHelper.getFontSize(
-                                                  context,
-                                                  tabletSize: 18,
-                                                  phoneSize: 16,
-                                                ),
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                            subtitle: Text(
-                                              sale['date'],
-                                              style: TextStyle(
-                                                fontSize: ResponsiveHelper.getFontSize(
-                                                  context,
-                                                  tabletSize: 16,
-                                                  phoneSize: 14,
-                                                ),
-                                              ),
-                                            ),
-                                            trailing: Text(
-                                              '₱${(sale['total'] as num).toStringAsFixed(2)}',
-                                              style: TextStyle(
-                                                fontSize: ResponsiveHelper.getFontSize(
-                                                  context,
-                                                  tabletSize: 20,
-                                                  phoneSize: 16,
-                                                ),
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.green,
-                                              ),
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        subtitle: Text(
+                          sale['date'],
+                          style: TextStyle(
+                            fontSize: ResponsiveHelper.getFontSize(
+                              context,
+                              tabletSize: 16,
+                              phoneSize: 14,
                             ),
-                          ],
-                        );
+                          ),
+                        ),
+                        trailing: Text(
+                          '₱${(sale['total'] as num).toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontSize: ResponsiveHelper.getFontSize(
+                              context,
+                              tabletSize: 20,
+                              phoneSize: 16,
+                            ),
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
   }
 
   /// Build products sold section
@@ -446,6 +454,3 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 }
-
-
-
