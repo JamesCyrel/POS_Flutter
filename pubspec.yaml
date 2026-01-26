@@ -1,0 +1,32 @@
+name: pos_inventory_app
+description: A simple offline POS and Inventory Management App for Android tablets
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # SQLite database
+  sqflite: ^2.3.0
+  path: ^1.8.3
+  
+  # Barcode scanning
+  mobile_scanner: ^5.2.3
+  
+  # Intl for date formatting
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+
+
