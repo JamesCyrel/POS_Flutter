@@ -99,6 +99,18 @@ class DatabaseHelper {
     return result.map((map) => Product.fromMap(map)).toList();
   }
 
+  /// Get products with low stock (quantity <= threshold)
+  Future<List<Product>> getLowStockProducts({int threshold = 10}) async {
+    final db = await database;
+    final result = await db.query(
+      'products',
+      where: 'quantity <= ?',
+      whereArgs: [threshold],
+      orderBy: 'quantity ASC, name ASC',
+    );
+    return result.map((map) => Product.fromMap(map)).toList();
+  }
+
   /// Get a product by ID
   Future<Product?> getProductById(int id) async {
     final db = await database;

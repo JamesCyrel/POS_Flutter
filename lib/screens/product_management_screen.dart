@@ -493,9 +493,16 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
         cacheExtent: 500,
         itemBuilder: (context, index) {
           final product = _filteredProducts[index];
+          final isLowStock = product.quantity <= 10;
+          final isOutOfStock = product.quantity == 0;
           return Card(
             key: ValueKey('product_card_${product.id}'),
             elevation: 2,
+            color: isOutOfStock
+                ? Colors.red.shade50
+                : isLowStock
+                    ? Colors.orange.shade50
+                    : Colors.white,
             child: Padding(
               padding: EdgeInsets.all(
                 ResponsiveHelper.isTablet(context) ? 16.0 : 12.0,
@@ -586,25 +593,56 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: product.quantity > 0
-                                ? Colors.green.withOpacity(0.2)
-                                : Colors.red.withOpacity(0.2),
+                            color: product.quantity == 0
+                                ? Colors.red.withOpacity(0.2)
+                                : product.quantity <= 10
+                                    ? Colors.orange.withOpacity(0.2)
+                                    : Colors.green.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(12),
+                            border: isLowStock
+                                ? Border.all(
+                                    color: Colors.orange.shade400,
+                                    width: 1.5,
+                                  )
+                                : null,
                           ),
-                          child: Text(
-                            'Stock: ${product.quantity}',
-                            style: TextStyle(
-                              fontSize: ResponsiveHelper.getFontSize(
-                                context,
-                                tabletSize: 14,
-                                phoneSize: 12,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (isLowStock)
+                                Icon(
+                                  isOutOfStock
+                                      ? Icons.error_outline
+                                      : Icons.warning_amber_rounded,
+                                  size: ResponsiveHelper.getFontSize(
+                                    context,
+                                    tabletSize: 14,
+                                    phoneSize: 12,
+                                  ),
+                                  color:
+                                      isOutOfStock ? Colors.red : Colors.orange,
+                                ),
+                              if (isLowStock) const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  'Stock: ${product.quantity}',
+                                  style: TextStyle(
+                                    fontSize: ResponsiveHelper.getFontSize(
+                                      context,
+                                      tabletSize: 14,
+                                      phoneSize: 12,
+                                    ),
+                                    fontWeight: FontWeight.bold,
+                                    color: product.quantity == 0
+                                        ? Colors.red
+                                        : product.quantity <= 10
+                                            ? Colors.orange
+                                            : Colors.green,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                              fontWeight: FontWeight.bold,
-                              color: product.quantity > 0
-                                  ? Colors.green
-                                  : Colors.red,
-                            ),
-                            overflow: TextOverflow.ellipsis,
+                            ],
                           ),
                         ),
                       ),
