@@ -1,4 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:excel/excel.dart' hide Border;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../helpers/database_helper.dart';
 import '../helpers/responsive_helper.dart';
 import 'package:intl/intl.dart';
@@ -13,10 +17,11 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  // Selected date (default: today)
-  DateTime _selectedDate = DateTime.now();
+  // Date range (default: today)
+  DateTime _startDate = DateTime.now();
+  DateTime _endDate = DateTime.now();
 
-  // Report type: 'daily', 'weekly', 'monthly'
+  // Report type: 'daily', 'weekly', 'monthly', 'custom'
   String _reportType = 'daily';
 
   // Sales data
@@ -33,7 +38,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     _loadReports();
   }
 
-  /// Load reports based on selected type and date
+  /// Load reports based on selected type and date range
   Future<void> _loadReports() async {
     setState(() {
       _isLoading = true;
@@ -43,25 +48,27 @@ class _ReportsScreenState extends State<ReportsScreen> {
     String endDate;
 
     if (_reportType == 'daily') {
-      startDate = DateFormat('yyyy-MM-dd').format(_selectedDate);
+      startDate = DateFormat('yyyy-MM-dd').format(_startDate);
       endDate = startDate;
     } else if (_reportType == 'weekly') {
       // Get start of week (Monday)
       final startOfWeek =
-          _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1));
+          _startDate.subtract(Duration(days: _startDate.weekday - 1));
       // Get end of week (Sunday)
       final endOfWeek = startOfWeek.add(const Duration(days: 6));
       startDate = DateFormat('yyyy-MM-dd').format(startOfWeek);
       endDate = DateFormat('yyyy-MM-dd').format(endOfWeek);
-    } else {
-      // monthly
+    } else if (_reportType == 'monthly') {
       // Get start of month
-      final startOfMonth = DateTime(_selectedDate.year, _selectedDate.month, 1);
+      final startOfMonth = DateTime(_startDate.year, _startDate.month, 1);
       // Get end of month
-      final endOfMonth =
-          DateTime(_selectedDate.year, _selectedDate.month + 1, 0);
+      final endOfMonth = DateTime(_startDate.year, _startDate.month + 1, 0);
       startDate = DateFormat('yyyy-MM-dd').format(startOfMonth);
       endDate = DateFormat('yyyy-MM-dd').format(endOfMonth);
+    } else {
+      // Custom date range
+      startDate = DateFormat('yyyy-MM-dd').format(_startDate);
+      endDate = DateFormat('yyyy-MM-dd').format(_endDate);
     }
 
     // Get total sales
@@ -102,22 +109,300 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  /// Show date picker
-  Future<void> _selectDate() async {
-    final picked = await showDatePicker(
+  /// Show date range picker
+  Future<void> _selectDateRange() async {
+    if (_reportType == 'custom') {
+      // Show custom date range picker
+      final pickedRange = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(2020),
+        lastDate: DateTime.now(),
+        initialDateRange: DateTimeRange(start: _startDate, end: _endDate),
+        builder: (context, child) {
+          return Theme(
+            data: Theme.of(context).copyWith(
+              colorScheme: ColorScheme.light(
+                primary: Colors.blue,
+                onPrimary: Colors.white,
+                surface: Colors.white,
+                onSurface: Colors.black,
+              ),
+            ),
+            child: child!,
+          );
+        },
+      );
+
+      if (pickedRange != null) {
+        setState(() {
+          _startDate = pickedRange.start;
+          _endDate = pickedRange.end;
+        });
+        _loadReports();
+      }
+    } else {
+      // Show single date picker for daily/weekly/monthly
+      final picked = await showDatePicker(
+        context: context,
+        initialDate: _startDate,
+        firstDate: DateTime(2020),
+        lastDate: DateTime.now(),
+        initialDatePickerMode:
+            _reportType == 'monthly' ? DatePickerMode.year : DatePickerMode.day,
+      );
+
+      if (picked != null) {
+        setState(() {
+          _startDate = picked;
+          _endDate = picked;
+        });
+        _loadReports();
+      }
+    }
+  }
+
+  /// Get date range display text
+  String _getDateRangeText() {
+    if (_reportType == 'daily') {
+      return DateFormat('MMM dd, yyyy').format(_startDate);
+    } else if (_reportType == 'weekly') {
+      final startOfWeek =
+          _startDate.subtract(Duration(days: _startDate.weekday - 1));
+      final endOfWeek = startOfWeek.add(const Duration(days: 6));
+      return '${DateFormat('MMM dd').format(startOfWeek)} - ${DateFormat('MMM dd, yyyy').format(endOfWeek)}';
+    } else if (_reportType == 'monthly') {
+      return DateFormat('MMMM yyyy').format(_startDate);
+    } else {
+      // Custom range
+      if (_startDate.year == _endDate.year &&
+          _startDate.month == _endDate.month &&
+          _startDate.day == _endDate.day) {
+        return DateFormat('MMM dd, yyyy').format(_startDate);
+      }
+      return '${DateFormat('MMM dd, yyyy').format(_startDate)} - ${DateFormat('MMM dd, yyyy').format(_endDate)}';
+    }
+  }
+
+  /// Export report to Excel
+  Future<void> _exportToExcel() async {
+    if (_sales.isEmpty && _productsSold.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No data to export'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // Show loading dialog
+    showDialog(
       context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
-      initialDatePickerMode:
-          _reportType == 'monthly' ? DatePickerMode.year : DatePickerMode.day,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Generating Excel file...'),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
 
-    if (picked != null) {
-      setState(() {
-        _selectedDate = picked;
-      });
-      _loadReports();
+    try {
+      // Get date range info
+      String startDate;
+      String endDate;
+      String reportTitle;
+
+      if (_reportType == 'daily') {
+        startDate = DateFormat('yyyy-MM-dd').format(_startDate);
+        endDate = startDate;
+        reportTitle =
+            'Daily Report - ${DateFormat('MMM dd, yyyy').format(_startDate)}';
+      } else if (_reportType == 'weekly') {
+        final startOfWeek =
+            _startDate.subtract(Duration(days: _startDate.weekday - 1));
+        final endOfWeek = startOfWeek.add(const Duration(days: 6));
+        startDate = DateFormat('yyyy-MM-dd').format(startOfWeek);
+        endDate = DateFormat('yyyy-MM-dd').format(endOfWeek);
+        reportTitle =
+            'Weekly Report - ${DateFormat('MMM dd, yyyy').format(startOfWeek)} to ${DateFormat('MMM dd, yyyy').format(endOfWeek)}';
+      } else if (_reportType == 'monthly') {
+        final startOfMonth = DateTime(_startDate.year, _startDate.month, 1);
+        final endOfMonth = DateTime(_startDate.year, _startDate.month + 1, 0);
+        startDate = DateFormat('yyyy-MM-dd').format(startOfMonth);
+        endDate = DateFormat('yyyy-MM-dd').format(endOfMonth);
+        reportTitle =
+            'Monthly Report - ${DateFormat('MMMM yyyy').format(_startDate)}';
+      } else {
+        // Custom range
+        startDate = DateFormat('yyyy-MM-dd').format(_startDate);
+        endDate = DateFormat('yyyy-MM-dd').format(_endDate);
+        reportTitle =
+            'Custom Report - ${DateFormat('MMM dd, yyyy').format(_startDate)} to ${DateFormat('MMM dd, yyyy').format(_endDate)}';
+      }
+
+      // Create Excel file
+      final excel = Excel.createExcel();
+      excel.delete('Sheet1'); // Delete default sheet
+
+      // Sheet 1: Summary
+      final summarySheetName =
+          reportTitle.length > 31 ? 'Summary' : reportTitle;
+      final summarySheet = excel[summarySheetName];
+      summarySheet.appendRow(['Sales Report Summary']);
+      summarySheet.appendRow([]);
+      summarySheet.appendRow(['Report Type:', _reportType.toUpperCase()]);
+      summarySheet.appendRow(['Date Range:', '$startDate to $endDate']);
+      summarySheet.appendRow([
+        'Generated:',
+        DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())
+      ]);
+      summarySheet.appendRow([]);
+      summarySheet
+          .appendRow(['Total Sales:', '₱${_totalSales.toStringAsFixed(2)}']);
+      summarySheet.appendRow(['Total Transactions:', '${_sales.length}']);
+      summarySheet.appendRow(['Products Sold:', '${_productsSold.length}']);
+
+      // Sheet 2: Sales Transactions
+      final salesSheet = excel['Sales Transactions'];
+      salesSheet.appendRow(['Sales Transactions']);
+      salesSheet.appendRow([]);
+      salesSheet.appendRow(['Sale ID', 'Date', 'Total Amount (₱)']);
+
+      for (final sale in _sales) {
+        salesSheet.appendRow([
+          sale['id'],
+          sale['date'],
+          (sale['total'] as num).toStringAsFixed(2),
+        ]);
+      }
+
+      salesSheet.appendRow([]);
+      salesSheet
+          .appendRow(['Total:', '', '₱${_totalSales.toStringAsFixed(2)}']);
+
+      // Sheet 3: Products Sold
+      final productsSheet = excel['Products Sold'];
+      productsSheet.appendRow(['Products Sold']);
+      productsSheet.appendRow([]);
+      productsSheet.appendRow(
+          ['Product Name', 'Barcode', 'Quantity', 'Total Revenue (₱)']);
+
+      for (final product in _productsSold) {
+        productsSheet.appendRow([
+          product['name'] as String,
+          product['barcode'] ?? 'N/A',
+          product['total_quantity'],
+          (product['total_revenue'] as num).toStringAsFixed(2),
+        ]);
+      }
+
+      // Get Downloads directory path
+      Directory? downloadsDir;
+      if (Platform.isAndroid) {
+        // For Android, use external storage Downloads folder
+        final externalStorageDir = await getExternalStorageDirectory();
+        if (externalStorageDir != null) {
+          // Navigate to Downloads folder
+          final downloadsPath = '/storage/emulated/0/Download';
+          downloadsDir = Directory(downloadsPath);
+
+          // If that doesn't exist, try alternative path
+          if (!await downloadsDir.exists()) {
+            final altPath = '${externalStorageDir.parent.path}/Download';
+            downloadsDir = Directory(altPath);
+          }
+
+          // Create directory if it doesn't exist
+          if (!await downloadsDir.exists()) {
+            await downloadsDir.create(recursive: true);
+          }
+        }
+      }
+
+      // Fallback to app documents if Downloads not available
+      if (downloadsDir == null || !await downloadsDir.exists()) {
+        downloadsDir = await getApplicationDocumentsDirectory();
+      }
+
+      // Generate filename with date range
+      final dateStr = _reportType == 'custom'
+          ? '${DateFormat('yyyyMMdd').format(_startDate)}_${DateFormat('yyyyMMdd').format(_endDate)}'
+          : DateFormat('yyyyMMdd').format(_startDate);
+      final fileName = 'Sales_Report_${_reportType}_$dateStr.xlsx';
+      final filePath = '${downloadsDir.path}/$fileName';
+      final file = File(filePath);
+
+      // Save Excel file
+      final excelBytes = excel.save();
+      if (excelBytes != null) {
+        await file.writeAsBytes(excelBytes);
+      }
+
+      // Close loading dialog
+      if (mounted) {
+        Navigator.pop(context);
+      }
+
+      // Show success message with file location
+      if (mounted) {
+        final isDownloads = downloadsDir.path.contains('Download');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Excel file saved successfully!'),
+                const SizedBox(height: 4),
+                Text(
+                  isDownloads
+                      ? 'Location: Downloads/$fileName'
+                      : 'File: $fileName',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'Share',
+              textColor: Colors.white,
+              onPressed: () async {
+                await Share.shareXFiles(
+                  [XFile(filePath)],
+                  text: reportTitle,
+                  subject: 'Sales Report Export',
+                );
+              },
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      // Close loading dialog
+      if (mounted) {
+        Navigator.pop(context);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error exporting Excel: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     }
   }
 
@@ -160,10 +445,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           _buildReportTypeButton('weekly', 'Weekly'),
                           const SizedBox(width: 8),
                           _buildReportTypeButton('monthly', 'Monthly'),
+                          const SizedBox(width: 8),
+                          _buildReportTypeButton('custom', 'Custom Range'),
                         ],
                       ),
                       const SizedBox(height: 16),
-                      // Date selector
+                      // Date selector and Export button
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -174,17 +461,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           ),
                           const SizedBox(width: 16),
                           ElevatedButton.icon(
-                            onPressed: _selectDate,
+                            onPressed: _selectDateRange,
                             icon: const Icon(Icons.calendar_today),
                             label: Text(
-                              _reportType == 'daily'
-                                  ? DateFormat('MMM dd, yyyy')
-                                      .format(_selectedDate)
-                                  : _reportType == 'weekly'
-                                      ? 'Week of ${DateFormat('MMM dd, yyyy').format(_selectedDate)}'
-                                      : DateFormat('MMMM yyyy')
-                                          .format(_selectedDate),
+                              _getDateRangeText(),
                               style: const TextStyle(fontSize: 18),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          ElevatedButton.icon(
+                            onPressed: _exportToExcel,
+                            icon: const Icon(Icons.download),
+                            label: const Text('Export Excel'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
                             ),
                           ),
                         ],
