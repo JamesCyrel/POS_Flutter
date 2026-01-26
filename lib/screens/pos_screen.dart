@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../models/product.dart';
@@ -47,16 +48,20 @@ class _POSScreenState extends State<POSScreen> {
   List<Product> _filteredProducts = [];
   bool _isLoadingProducts = false;
 
+  // Debounce timer for search
+  Timer? _searchDebounce;
+
   @override
   void initState() {
     super.initState();
     _initializeScanner();
-    _searchController.addListener(_filterProducts);
+    _searchController.addListener(_onSearchChanged);
     _loadProducts();
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _scannerController?.stop();
     _scannerController?.dispose();
     _customerGaveController.dispose();
@@ -106,20 +111,40 @@ class _POSScreenState extends State<POSScreen> {
     }
   }
 
+  /// Handle search text changes with debouncing
+  void _onSearchChanged() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      _filterProducts();
+    });
+  }
+
   /// Filter products based on search query
   void _filterProducts() {
-    final query = _searchController.text.toLowerCase();
-    setState(() {
-      if (query.isEmpty) {
+    if (!mounted) return;
+
+    final query = _searchController.text.toLowerCase().trim();
+
+    if (query.isEmpty) {
+      setState(() {
         _filteredProducts = _allProducts;
-      } else {
-        _filteredProducts = _allProducts.where((product) {
-          return product.name.toLowerCase().contains(query) ||
-              (product.barcode != null &&
-                  product.barcode!.toLowerCase().contains(query));
-        }).toList();
-      }
-    });
+      });
+      return;
+    }
+
+    // Use where().toList() but cache the lowercase query
+    final filtered = _allProducts.where((product) {
+      final nameMatch = product.name.toLowerCase().contains(query);
+      final barcodeMatch = product.barcode != null &&
+          product.barcode!.toLowerCase().contains(query);
+      return nameMatch || barcodeMatch;
+    }).toList();
+
+    if (mounted) {
+      setState(() {
+        _filteredProducts = filtered;
+      });
+    }
   }
 
   /// Add product to cart manually
@@ -618,13 +643,16 @@ class _POSScreenState extends State<POSScreen> {
                   ),
                 )
               : ListView.builder(
+                  key: const ValueKey('cart_list'),
                   itemCount: _cart.length,
                   padding: EdgeInsets.all(
                     ResponsiveHelper.isTablet(context) ? 8 : 4,
                   ),
+                  cacheExtent: 200,
                   itemBuilder: (context, index) {
                     final item = _cart[index];
                     return Card(
+                      key: ValueKey('cart_item_${item.product.id}_$index'),
                       margin: EdgeInsets.only(
                         bottom: ResponsiveHelper.isTablet(context) ? 8 : 4,
                         left: ResponsiveHelper.isTablet(context) ? 0 : 4,
@@ -1201,12 +1229,15 @@ class _POSScreenState extends State<POSScreen> {
                       ),
                     )
                   : ListView.builder(
+                      key: const ValueKey('products_list'),
                       padding: EdgeInsets.all(isTablet ? 8 : 4),
                       itemCount: _filteredProducts.length,
+                      cacheExtent: 250,
                       itemBuilder: (context, index) {
                         final product = _filteredProducts[index];
                         final isOutOfStock = product.quantity <= 0;
                         return Card(
+                          key: ValueKey('product_${product.id}'),
                           margin: EdgeInsets.only(
                             bottom: isTablet ? 8 : 4,
                             left: isTablet ? 4 : 2,

@@ -37,6 +37,20 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'POS Inventory App',
       debugShowCheckedModeBanner: false,
+      // Performance optimizations
+      builder: (context, child) {
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            textScaler: MediaQuery.of(context).textScaler.clamp(
+                  minScaleFactor: 0.8,
+                  maxScaleFactor: 1.2,
+                ),
+          ),
+          child: ClipRect(
+            child: child!,
+          ),
+        );
+      },
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: Colors.blue,
@@ -59,23 +73,7 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-      // Hide overflow errors globally
-      builder: (context, child) {
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            textScaler: MediaQuery.of(context).textScaler.clamp(
-              minScaleFactor: 0.8,
-              maxScaleFactor: 1.2,
-            ),
-          ),
-          child: ClipRect(
-            child: child!,
-          ),
-        );
-      },
       home: const HomeScreen(),
     );
   }
 }
-
-

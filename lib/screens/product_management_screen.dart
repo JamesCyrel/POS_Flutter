@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../models/product.dart';
@@ -27,33 +28,56 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
   // Loading state
   bool _isLoading = true;
 
+  // Debounce timer for search
+  Timer? _searchDebounce;
+
   @override
   void initState() {
     super.initState();
     _loadProducts();
-    _searchController.addListener(_filterProducts);
+    _searchController.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
+  /// Handle search text changes with debouncing
+  void _onSearchChanged() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      _filterProducts();
+    });
+  }
+
   /// Filter products based on search query
   void _filterProducts() {
-    final query = _searchController.text.toLowerCase();
-    setState(() {
-      if (query.isEmpty) {
+    if (!mounted) return;
+
+    final query = _searchController.text.toLowerCase().trim();
+
+    if (query.isEmpty) {
+      setState(() {
         _filteredProducts = _products;
-      } else {
-        _filteredProducts = _products.where((product) {
-          return product.name.toLowerCase().contains(query) ||
-              (product.barcode != null &&
-                  product.barcode!.toLowerCase().contains(query));
-        }).toList();
-      }
-    });
+      });
+      return;
+    }
+
+    final filtered = _products.where((product) {
+      final nameMatch = product.name.toLowerCase().contains(query);
+      final barcodeMatch = product.barcode != null &&
+          product.barcode!.toLowerCase().contains(query);
+      return nameMatch || barcodeMatch;
+    }).toList();
+
+    if (mounted) {
+      setState(() {
+        _filteredProducts = filtered;
+      });
+    }
   }
 
   /// Load all products from database
@@ -454,6 +478,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
         phonePadding: const EdgeInsets.all(8.0),
       ),
       child: GridView.builder(
+        key: const ValueKey('products_grid'),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: ResponsiveHelper.getGridCrossAxisCount(
             context,
@@ -465,9 +490,11 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
           childAspectRatio: ResponsiveHelper.isTablet(context) ? 1.5 : 1.4,
         ),
         itemCount: _filteredProducts.length,
+        cacheExtent: 500,
         itemBuilder: (context, index) {
           final product = _filteredProducts[index];
           return Card(
+            key: ValueKey('product_card_${product.id}'),
             elevation: 2,
             child: Padding(
               padding: EdgeInsets.all(
