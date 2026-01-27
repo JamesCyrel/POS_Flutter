@@ -428,135 +428,142 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                // Report type and date selector
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  color: Colors.blue.shade50,
-                  child: Column(
-                    children: [
-                      // Report type selector
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+          : Scrollbar(
+              thumbVisibility: true,
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    // Report type and date selector
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      color: Colors.blue.shade50,
+                      child: Column(
                         children: [
-                          _buildReportTypeButton('daily', 'Daily'),
-                          const SizedBox(width: 8),
-                          _buildReportTypeButton('weekly', 'Weekly'),
-                          const SizedBox(width: 8),
-                          _buildReportTypeButton('monthly', 'Monthly'),
-                          const SizedBox(width: 8),
-                          _buildReportTypeButton('custom', 'Custom Range'),
+                          // Report type selector
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _buildReportTypeButton('daily', 'Daily'),
+                              _buildReportTypeButton('weekly', 'Weekly'),
+                              _buildReportTypeButton('monthly', 'Monthly'),
+                              _buildReportTypeButton('custom', 'Custom Range'),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          // Date selector and Export button
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            spacing: 16,
+                            runSpacing: 12,
+                            children: [
+                              const Text(
+                                'Date:',
+                                style: TextStyle(
+                                    fontSize: 20, fontWeight: FontWeight.bold),
+                              ),
+                              ElevatedButton.icon(
+                                onPressed: _selectDateRange,
+                                icon: const Icon(Icons.calendar_today),
+                                label: Text(
+                                  _getDateRangeText(),
+                                  style: const TextStyle(fontSize: 18),
+                                ),
+                              ),
+                              ElevatedButton.icon(
+                                onPressed: _exportToExcel,
+                                icon: const Icon(Icons.download),
+                                label: const Text('Export Excel'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 16),
-                      // Date selector and Export button
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                    ),
+                    // Total sales card
+                    Container(
+                      margin: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border:
+                            Border.all(color: Colors.green.shade300, width: 2),
+                      ),
+                      child: Column(
                         children: [
                           const Text(
-                            'Date:',
+                            'Total Sales',
                             style: TextStyle(
-                                fontSize: 20, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(width: 16),
-                          ElevatedButton.icon(
-                            onPressed: _selectDateRange,
-                            icon: const Icon(Icons.calendar_today),
-                            label: Text(
-                              _getDateRangeText(),
-                              style: const TextStyle(fontSize: 18),
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green,
                             ),
                           ),
-                          const SizedBox(width: 16),
-                          ElevatedButton.icon(
-                            onPressed: _exportToExcel,
-                            icon: const Icon(Icons.download),
-                            label: const Text('Export Excel'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
+                          const SizedBox(height: 8),
+                          Text(
+                            '₱${_totalSales.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              fontSize: 48,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '${_sales.length} transaction(s)',
+                            style: const TextStyle(
+                              fontSize: 18,
+                              color: Colors.grey,
                             ),
                           ),
                         ],
                       ),
-                    ],
-                  ),
+                    ),
+                    // Products sold section
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                      child: ResponsiveHelper.isTablet(context)
+                          ? Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: _buildSalesTransactions(context,
+                                      shrinkWrap: true),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _buildProductsSold(context,
+                                      shrinkWrap: true),
+                                ),
+                              ],
+                            )
+                          : Column(
+                              children: [
+                                _buildSalesTransactions(context,
+                                    shrinkWrap: true),
+                                const SizedBox(height: 12),
+                                _buildProductsSold(context,
+                                    shrinkWrap: true),
+                              ],
+                            ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                 ),
-                // Total sales card
-                Container(
-                  margin: const EdgeInsets.all(16),
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.green.shade300, width: 2),
-                  ),
-                  child: Column(
-                    children: [
-                      const Text(
-                        'Total Sales',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '₱${_totalSales.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          fontSize: 48,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '${_sales.length} transaction(s)',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Products sold section
-                Expanded(
-                  child: ResponsiveHelper.isTablet(context)
-                      ? Row(
-                          children: [
-                            // Sales transactions
-                            Expanded(
-                              child: _buildSalesTransactions(context),
-                            ),
-                            // Products sold
-                            Expanded(
-                              child: _buildProductsSold(context),
-                            ),
-                          ],
-                        )
-                      : Column(
-                          children: [
-                            // Sales transactions
-                            Expanded(
-                              child: _buildSalesTransactions(context),
-                            ),
-                            // Products sold
-                            Expanded(
-                              child: _buildProductsSold(context),
-                            ),
-                          ],
-                        ),
-                ),
-              ],
+              ),
             ),
     );
   }
 
   /// Build sales transactions section
-  Widget _buildSalesTransactions(BuildContext context) {
+  Widget _buildSalesTransactions(BuildContext context,
+      {bool shrinkWrap = false}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -574,75 +581,78 @@ class _ReportsScreenState extends State<ReportsScreen> {
             ),
           ),
         ),
-        Expanded(
-          child: _sales.isEmpty
-              ? Center(
-                  child: Text(
-                    'No sales for this date',
+        if (_sales.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Text(
+              'No sales for this date',
+              style: TextStyle(
+                fontSize: ResponsiveHelper.getFontSize(
+                  context,
+                  tabletSize: 18,
+                  phoneSize: 16,
+                ),
+                color: Colors.grey,
+              ),
+            ),
+          )
+        else
+          ListView.builder(
+            padding: EdgeInsets.symmetric(
+              horizontal: ResponsiveHelper.isTablet(context) ? 16 : 8,
+            ),
+            itemCount: _sales.length,
+            shrinkWrap: shrinkWrap,
+            physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
+            itemBuilder: (context, index) {
+              final sale = _sales[index];
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  title: Text(
+                    'Sale #${sale['id']}',
                     style: TextStyle(
                       fontSize: ResponsiveHelper.getFontSize(
                         context,
                         tabletSize: 18,
                         phoneSize: 16,
                       ),
-                      color: Colors.grey,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                )
-              : ListView.builder(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: ResponsiveHelper.isTablet(context) ? 16 : 8,
-                  ),
-                  itemCount: _sales.length,
-                  itemBuilder: (context, index) {
-                    final sale = _sales[index];
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        title: Text(
-                          'Sale #${sale['id']}',
-                          style: TextStyle(
-                            fontSize: ResponsiveHelper.getFontSize(
-                              context,
-                              tabletSize: 18,
-                              phoneSize: 16,
-                            ),
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        subtitle: Text(
-                          sale['date'],
-                          style: TextStyle(
-                            fontSize: ResponsiveHelper.getFontSize(
-                              context,
-                              tabletSize: 16,
-                              phoneSize: 14,
-                            ),
-                          ),
-                        ),
-                        trailing: Text(
-                          '₱${(sale['total'] as num).toStringAsFixed(2)}',
-                          style: TextStyle(
-                            fontSize: ResponsiveHelper.getFontSize(
-                              context,
-                              tabletSize: 20,
-                              phoneSize: 16,
-                            ),
-                            fontWeight: FontWeight.bold,
-                            color: Colors.green,
-                          ),
-                        ),
+                  subtitle: Text(
+                    sale['date'],
+                    style: TextStyle(
+                      fontSize: ResponsiveHelper.getFontSize(
+                        context,
+                        tabletSize: 16,
+                        phoneSize: 14,
                       ),
-                    );
-                  },
+                    ),
+                  ),
+                  trailing: Text(
+                    '₱${(sale['total'] as num).toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontSize: ResponsiveHelper.getFontSize(
+                        context,
+                        tabletSize: 20,
+                        phoneSize: 16,
+                      ),
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
+                    ),
+                  ),
                 ),
-        ),
+              );
+            },
+          ),
       ],
     );
   }
 
   /// Build products sold section
-  Widget _buildProductsSold(BuildContext context) {
+  Widget _buildProductsSold(BuildContext context,
+      {bool shrinkWrap = false}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -660,87 +670,89 @@ class _ReportsScreenState extends State<ReportsScreen> {
             ),
           ),
         ),
-        Expanded(
-          child: _productsSold.isEmpty
-              ? Center(
-                  child: Text(
-                    'No products sold',
+        if (_productsSold.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Text(
+              'No products sold',
+              style: TextStyle(
+                fontSize: ResponsiveHelper.getFontSize(
+                  context,
+                  tabletSize: 18,
+                  phoneSize: 16,
+                ),
+                color: Colors.grey,
+              ),
+            ),
+          )
+        else
+          ListView.builder(
+            padding: EdgeInsets.symmetric(
+              horizontal: ResponsiveHelper.isTablet(context) ? 16 : 8,
+            ),
+            itemCount: _productsSold.length,
+            shrinkWrap: shrinkWrap,
+            physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
+            itemBuilder: (context, index) {
+              final product = _productsSold[index];
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  title: Text(
+                    product['name'] as String,
                     style: TextStyle(
                       fontSize: ResponsiveHelper.getFontSize(
                         context,
                         tabletSize: 18,
                         phoneSize: 16,
                       ),
-                      color: Colors.grey,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                )
-              : ListView.builder(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: ResponsiveHelper.isTablet(context) ? 16 : 8,
-                  ),
-                  itemCount: _productsSold.length,
-                  itemBuilder: (context, index) {
-                    final product = _productsSold[index];
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        title: Text(
-                          product['name'] as String,
+                  subtitle: product['barcode'] != null
+                      ? Text(
+                          'Barcode: ${product['barcode']}',
                           style: TextStyle(
                             fontSize: ResponsiveHelper.getFontSize(
                               context,
-                              tabletSize: 18,
-                              phoneSize: 16,
+                              tabletSize: 14,
+                              phoneSize: 12,
                             ),
-                            fontWeight: FontWeight.bold,
                           ),
-                        ),
-                        subtitle: product['barcode'] != null
-                            ? Text(
-                                'Barcode: ${product['barcode']}',
-                                style: TextStyle(
-                                  fontSize: ResponsiveHelper.getFontSize(
-                                    context,
-                                    tabletSize: 14,
-                                    phoneSize: 12,
-                                  ),
-                                ),
-                              )
-                            : null,
-                        trailing: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              'Qty: ${product['total_quantity']}',
-                              style: TextStyle(
-                                fontSize: ResponsiveHelper.getFontSize(
-                                  context,
-                                  tabletSize: 16,
-                                  phoneSize: 14,
-                                ),
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              '₱${(product['total_revenue'] as num).toStringAsFixed(2)}',
-                              style: TextStyle(
-                                fontSize: ResponsiveHelper.getFontSize(
-                                  context,
-                                  tabletSize: 16,
-                                  phoneSize: 14,
-                                ),
-                                color: Colors.green,
-                              ),
-                            ),
-                          ],
+                        )
+                      : null,
+                  trailing: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        'Qty: ${product['total_quantity']}',
+                        style: TextStyle(
+                          fontSize: ResponsiveHelper.getFontSize(
+                            context,
+                            tabletSize: 16,
+                            phoneSize: 14,
+                          ),
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                    );
-                  },
+                      Text(
+                        '₱${(product['total_revenue'] as num).toStringAsFixed(2)}',
+                        style: TextStyle(
+                          fontSize: ResponsiveHelper.getFontSize(
+                            context,
+                            tabletSize: 16,
+                            phoneSize: 14,
+                          ),
+                          color: Colors.green,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-        ),
+              );
+            },
+          ),
       ],
     );
   }

@@ -7,6 +7,9 @@ class Product {
   // Product name
   String name;
   
+  // Category (defaults to Uncategorized)
+  String category;
+  
   // Barcode (can be null if product doesn't have a barcode)
   String? barcode;
   
@@ -20,6 +23,7 @@ class Product {
   Product({
     this.id,
     required this.name,
+    this.category = 'Uncategorized',
     this.barcode,
     required this.price,
     required this.quantity,
@@ -30,6 +34,7 @@ class Product {
     return {
       'id': id,
       'name': name,
+      'category': category,
       'barcode': barcode,
       'price': price,
       'quantity': quantity,
@@ -41,6 +46,9 @@ class Product {
     return Product(
       id: map['id'] as int?,
       name: map['name'] as String,
+      category: (map['category'] as String?)?.trim().isNotEmpty == true
+          ? map['category'] as String
+          : 'Uncategorized',
       barcode: map['barcode'] as String?,
       price: map['price'] as double,
       quantity: map['quantity'] as int,
@@ -51,6 +59,7 @@ class Product {
   Product copyWith({
     int? id,
     String? name,
+    String? category,
     String? barcode,
     double? price,
     int? quantity,
@@ -58,6 +67,7 @@ class Product {
     return Product(
       id: id ?? this.id,
       name: name ?? this.name,
+      category: category ?? this.category,
       barcode: barcode ?? this.barcode,
       price: price ?? this.price,
       quantity: quantity ?? this.quantity,
@@ -66,7 +76,7 @@ class Product {
 
   @override
   String toString() {
-    return 'Product(id: $id, name: $name, barcode: $barcode, price: $price, quantity: $quantity)';
+    return 'Product(id: $id, name: $name, category: $category, barcode: $barcode, price: $price, quantity: $quantity)';
   }
 }
 

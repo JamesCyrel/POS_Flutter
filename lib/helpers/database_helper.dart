@@ -30,8 +30,9 @@ class DatabaseHelper {
     // Open or create the database
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _createDB,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -42,6 +43,7 @@ class DatabaseHelper {
       CREATE TABLE products (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'Uncategorized',
         barcode TEXT,
         price REAL NOT NULL,
         quantity INTEGER NOT NULL DEFAULT 0
@@ -51,6 +53,7 @@ class DatabaseHelper {
     // Create indexes for better performance
     await db.execute('CREATE INDEX idx_products_barcode ON products(barcode)');
     await db.execute('CREATE INDEX idx_products_name ON products(name)');
+    await db.execute('CREATE INDEX idx_products_category ON products(category)');
 
     // Create sales table
     await db.execute('''
@@ -84,6 +87,18 @@ class DatabaseHelper {
         'CREATE INDEX idx_sale_items_product_id ON sale_items(product_id)');
   }
 
+  /// Handle database upgrades
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Add category column to products table
+      await db.execute(
+        "ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Uncategorized'",
+      );
+      await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)');
+    }
+  }
+
   // ========== PRODUCT OPERATIONS ==========
 
   /// Insert a new product
@@ -97,6 +112,45 @@ class DatabaseHelper {
     final db = await database;
     final result = await db.query('products', orderBy: 'name ASC');
     return result.map((map) => Product.fromMap(map)).toList();
+  }
+
+  /// Get distinct categories
+  Future<List<String>> getDistinctCategories() async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT DISTINCT category FROM products ORDER BY category ASC',
+    );
+    return result
+        .map((row) => (row['category'] as String?)?.trim())
+        .where((category) => category != null && category.isNotEmpty)
+        .cast<String>()
+        .toList();
+  }
+
+  /// Get total product count
+  Future<int> getTotalProductCount() async {
+    final db = await database;
+    final result = await db.rawQuery('SELECT COUNT(*) as count FROM products');
+    return (result.first['count'] as int?) ?? 0;
+  }
+
+  /// Get count of low stock products
+  Future<int> getLowStockCount({int threshold = 10}) async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM products WHERE quantity <= ?',
+      [threshold],
+    );
+    return (result.first['count'] as int?) ?? 0;
+  }
+
+  /// Get count of out of stock products
+  Future<int> getOutOfStockCount() async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM products WHERE quantity <= 0',
+    );
+    return (result.first['count'] as int?) ?? 0;
   }
 
   /// Get products with low stock (quantity <= threshold)
@@ -254,6 +308,23 @@ class DatabaseHelper {
       return 0.0;
     }
     return (result.first['total'] as num).toDouble();
+  }
+
+  /// Get total sales (all time)
+  Future<double> getTotalSalesAllTime() async {
+    final db = await database;
+    final result = await db.rawQuery('SELECT SUM(total) as total FROM sales');
+    if (result.isEmpty || result.first['total'] == null) {
+      return 0.0;
+    }
+    return (result.first['total'] as num).toDouble();
+  }
+
+  /// Get total number of transactions (all time)
+  Future<int> getTotalTransactionCount() async {
+    final db = await database;
+    final result = await db.rawQuery('SELECT COUNT(*) as count FROM sales');
+    return (result.first['count'] as int?) ?? 0;
   }
 
   /// Get all sales for a date range

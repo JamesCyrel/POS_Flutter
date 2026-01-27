@@ -48,6 +48,10 @@ class _POSScreenState extends State<POSScreen> {
   List<Product> _filteredProducts = [];
   bool _isLoadingProducts = false;
 
+  // Category filter
+  String _selectedCategory = 'All';
+  List<String> _categories = ['All', 'Uncategorized', 'Wholesale'];
+
   // Debounce timer for search
   Timer? _searchDebounce;
 
@@ -94,6 +98,7 @@ class _POSScreenState extends State<POSScreen> {
           _filteredProducts = products;
           _isLoadingProducts = false;
         });
+        _updateCategories(products);
       }
     } catch (e) {
       if (mounted) {
@@ -125,15 +130,25 @@ class _POSScreenState extends State<POSScreen> {
 
     final query = _searchController.text.toLowerCase().trim();
 
-    if (query.isEmpty) {
+    if (query.isEmpty && _selectedCategory == 'All') {
       setState(() {
         _filteredProducts = _allProducts;
       });
       return;
     }
 
-    // Use where().toList() but cache the lowercase query
     final filtered = _allProducts.where((product) {
+      final productCategory =
+          product.category.trim().isEmpty ? 'Uncategorized' : product.category;
+      final categoryMatch = _selectedCategory == 'All' ||
+          productCategory.toLowerCase() ==
+              _selectedCategory.toLowerCase().trim();
+      if (!categoryMatch) return false;
+
+      if (query.isEmpty) {
+        return true;
+      }
+
       final nameMatch = product.name.toLowerCase().contains(query);
       final barcodeMatch = product.barcode != null &&
           product.barcode!.toLowerCase().contains(query);
@@ -145,6 +160,34 @@ class _POSScreenState extends State<POSScreen> {
         _filteredProducts = filtered;
       });
     }
+  }
+
+  void _updateCategories(List<Product> products) {
+    if (!mounted) return;
+    final dynamicCategories = products
+        .map((product) => product.category.trim())
+        .where((category) => category.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    final nextCategories = <String>[
+      'All',
+      'Uncategorized',
+      'Wholesale',
+      ...dynamicCategories.where(
+        (category) =>
+            category.toLowerCase() != 'uncategorized' &&
+            category.toLowerCase() != 'wholesale',
+      ),
+    ];
+
+    setState(() {
+      _categories = nextCategories;
+      if (!_categories.contains(_selectedCategory)) {
+        _selectedCategory = 'All';
+      }
+    });
   }
 
   /// Add product to cart manually
@@ -395,6 +438,21 @@ class _POSScreenState extends State<POSScreen> {
       return;
     }
 
+    final customerGave =
+        double.tryParse(_customerGaveController.text.trim()) ?? 0.0;
+    if (customerGave < _cartTotal) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Customer payment is less than total'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Capture total before any state changes so it doesn't reset to 0
+    final double checkoutTotal = _cartTotal;
+
     // Confirm checkout
     final confirm = await showDialog<bool>(
       context: context,
@@ -457,7 +515,7 @@ class _POSScreenState extends State<POSScreen> {
 
       // Process checkout with transaction (atomic operation)
       await DatabaseHelper.instance.processCheckout(
-        _cartTotal,
+        checkoutTotal,
         dateStr,
         cartItems,
       );
@@ -480,7 +538,7 @@ class _POSScreenState extends State<POSScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Sale completed! Total: ₱${_cartTotal.toStringAsFixed(2)}',
+              'Sale completed! Total: ₱${checkoutTotal.toStringAsFixed(2)}',
             ),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 2),
@@ -1167,6 +1225,36 @@ class _POSScreenState extends State<POSScreen> {
   Widget _buildManualSelectionView(BuildContext context, bool isTablet) {
     return Column(
       children: [
+        // Category filter
+        Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: isTablet ? 12 : 8,
+            vertical: isTablet ? 8 : 6,
+          ),
+          color: Colors.white,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: _categories.map((category) {
+                final isSelected = _selectedCategory == category;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: ChoiceChip(
+                    label: Text(category),
+                    selected: isSelected,
+                    onSelected: (selected) {
+                      setState(() {
+                        _selectedCategory = category;
+                      });
+                      _filterProducts();
+                    },
+                    selectedColor: Colors.blue.shade100,
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
         // Search bar
         Container(
           padding: EdgeInsets.all(isTablet ? 12 : 8),
@@ -1282,6 +1370,13 @@ class _POSScreenState extends State<POSScreen> {
                                       color: Colors.grey.shade600,
                                     ),
                                   ),
+                                Text(
+                                  'Category: ${product.category.trim().isEmpty ? 'Uncategorized' : product.category}',
+                                  style: TextStyle(
+                                    fontSize: isTablet ? 12 : 10,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
                                 Text(
                                   'Stock: ${product.quantity}',
                                   style: TextStyle(

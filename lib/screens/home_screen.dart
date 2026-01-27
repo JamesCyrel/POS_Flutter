@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../helpers/responsive_helper.dart';
 import '../helpers/database_helper.dart';
 import '../models/product.dart';
@@ -17,28 +18,48 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<Product> _lowStockProducts = [];
+  int _totalProducts = 0;
+  int _lowStockCount = 0;
+  int _outOfStockCount = 0;
+  int _totalTransactions = 0;
+  int _categoryCount = 0;
+  double _totalSales = 0.0;
 
   @override
   void initState() {
     super.initState();
-    _loadLowStockProducts();
+    _loadAnalytics();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     // Reload when returning to this screen
-    _loadLowStockProducts();
+    _loadAnalytics();
   }
 
-  /// Load products with low stock (<= 10)
-  Future<void> _loadLowStockProducts() async {
+  /// Load dashboard analytics
+  Future<void> _loadAnalytics() async {
     try {
-      final products =
+      final lowStockProducts =
           await DatabaseHelper.instance.getLowStockProducts(threshold: 10);
+      final totalProducts =
+          await DatabaseHelper.instance.getTotalProductCount();
+      final outOfStockCount =
+          await DatabaseHelper.instance.getOutOfStockCount();
+      final totalSales = await DatabaseHelper.instance.getTotalSalesAllTime();
+      final totalTransactions =
+          await DatabaseHelper.instance.getTotalTransactionCount();
+      final categories = await DatabaseHelper.instance.getDistinctCategories();
       if (mounted) {
         setState(() {
-          _lowStockProducts = products;
+          _lowStockProducts = lowStockProducts;
+          _lowStockCount = lowStockProducts.length;
+          _totalProducts = totalProducts;
+          _outOfStockCount = outOfStockCount;
+          _totalSales = totalSales;
+          _totalTransactions = totalTransactions;
+          _categoryCount = categories.length;
         });
       }
     } catch (e) {
@@ -62,63 +83,31 @@ class _HomeScreenState extends State<HomeScreen> {
         centerTitle: true,
         elevation: 2,
       ),
-      body: Column(
-        children: [
-          // Low stock alert banner
-          if (_lowStockProducts.isNotEmpty)
-            _buildLowStockAlert(context, isTablet),
-          // Main menu
-          Expanded(
-            child: Padding(
-              padding: isTablet
-                  ? const EdgeInsets.all(32.0)
-                  : const EdgeInsets.all(16.0),
-              child: isTablet
-                  ? Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _buildMenuCard(context,
-                            title: 'Products',
-                            icon: Icons.inventory_2,
-                            color: Colors.blue,
-                            onTap: () => _navigateToProducts(context)),
-                        _buildMenuCard(context,
-                            title: 'Point of Sale',
-                            icon: Icons.point_of_sale,
-                            color: Colors.green,
-                            onTap: () => _navigateToPOS(context)),
-                        _buildMenuCard(context,
-                            title: 'Reports',
-                            icon: Icons.assessment,
-                            color: Colors.orange,
-                            onTap: () => _navigateToReports(context)),
-                      ],
-                    )
-                  : Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _buildMenuCard(context,
-                            title: 'Products',
-                            icon: Icons.inventory_2,
-                            color: Colors.blue,
-                            onTap: () => _navigateToProducts(context)),
-                        const SizedBox(height: 16),
-                        _buildMenuCard(context,
-                            title: 'Point of Sale',
-                            icon: Icons.point_of_sale,
-                            color: Colors.green,
-                            onTap: () => _navigateToPOS(context)),
-                        const SizedBox(height: 16),
-                        _buildMenuCard(context,
-                            title: 'Reports',
-                            icon: Icons.assessment,
-                            color: Colors.orange,
-                            onTap: () => _navigateToReports(context)),
-                      ],
-                    ),
+      body: Scrollbar(
+        thumbVisibility: true,
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            // Low stock alert banner
+            if (_lowStockProducts.isNotEmpty)
+              _buildLowStockAlert(context, isTablet),
+            // Analytics
+            Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: isTablet ? 32.0 : 16.0,
+                vertical: isTablet ? 16.0 : 8.0,
+              ),
+              child: _buildAnalyticsSection(context, isTablet),
             ),
-          ),
-        ],
+            // Main menu
+            Padding(
+              padding: isTablet
+                  ? const EdgeInsets.fromLTRB(32, 8, 32, 32)
+                  : const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              child: _buildMenuSection(context, isTablet),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -173,6 +162,154 @@ class _HomeScreenState extends State<HomeScreen> {
               size: isTablet ? 20 : 18,
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// Build analytics section
+  Widget _buildAnalyticsSection(BuildContext context, bool isTablet) {
+    final cardWidth =
+        isTablet ? 220.0 : (MediaQuery.of(context).size.width - 48) / 2;
+    final currencyFormat = NumberFormat('#,##0.00');
+
+    final cards = <Widget>[
+      _buildAnalyticsCard(
+        title: 'Total Products',
+        value: '$_totalProducts',
+        icon: Icons.inventory_2,
+        color: Colors.blue,
+        width: cardWidth,
+      ),
+      _buildAnalyticsCard(
+        title: 'Total Sales',
+        value: '₱${currencyFormat.format(_totalSales)}',
+        icon: Icons.payments,
+        color: Colors.green,
+        width: cardWidth,
+      ),
+      _buildAnalyticsCard(
+        title: 'Transactions',
+        value: '$_totalTransactions',
+        icon: Icons.receipt_long,
+        color: Colors.teal,
+        width: cardWidth,
+      ),
+      _buildAnalyticsCard(
+        title: 'Low Stock',
+        value: '$_lowStockCount',
+        icon: Icons.warning_amber_rounded,
+        color: Colors.orange,
+        width: cardWidth,
+      ),
+      _buildAnalyticsCard(
+        title: 'Out of Stock',
+        value: '$_outOfStockCount',
+        icon: Icons.error_outline,
+        color: Colors.red,
+        width: cardWidth,
+      ),
+      _buildAnalyticsCard(
+        title: 'Categories',
+        value: '$_categoryCount',
+        icon: Icons.category,
+        color: Colors.purple,
+        width: cardWidth,
+      ),
+    ];
+
+    return Wrap(
+      spacing: isTablet ? 16 : 12,
+      runSpacing: isTablet ? 16 : 12,
+      children: cards,
+    );
+  }
+
+  Widget _buildMenuSection(BuildContext context, bool isTablet) {
+    final availableWidth = MediaQuery.of(context).size.width;
+    final horizontalPadding = isTablet ? 64.0 : 32.0;
+    final spacing = isTablet ? 16.0 : 12.0;
+    final cardWidth = isTablet
+        ? (availableWidth - horizontalPadding - spacing * 2) / 3
+        : double.infinity;
+
+    return Wrap(
+      spacing: spacing,
+      runSpacing: spacing,
+      children: [
+        _buildMenuCard(
+          context,
+          title: 'Products',
+          icon: Icons.inventory_2,
+          color: Colors.blue,
+          onTap: () => _navigateToProducts(context),
+          width: cardWidth,
+        ),
+        _buildMenuCard(
+          context,
+          title: 'Point of Sale',
+          icon: Icons.point_of_sale,
+          color: Colors.green,
+          onTap: () => _navigateToPOS(context),
+          width: cardWidth,
+        ),
+        _buildMenuCard(
+          context,
+          title: 'Reports',
+          icon: Icons.assessment,
+          color: Colors.orange,
+          onTap: () => _navigateToReports(context),
+          width: cardWidth,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAnalyticsCard({
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color color,
+    required double width,
+  }) {
+    return SizedBox(
+      width: width,
+      child: Card(
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: color.withOpacity(0.15),
+                child: Icon(icon, color: color),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      value,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -280,7 +417,7 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (context) => const ProductManagementScreen()),
     );
     // Refresh low stock products when returning
-    _loadLowStockProducts();
+    _loadAnalytics();
   }
 
   void _navigateToPOS(BuildContext context) {
@@ -300,6 +437,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required IconData icon,
     required Color color,
     required VoidCallback onTap,
+    double? width,
   }) {
     final isTablet = ResponsiveHelper.isTablet(context);
 
@@ -339,18 +477,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
 
-    if (isTablet) {
-      return Expanded(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: card,
-        ),
-      );
-    } else {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-        child: card,
-      );
-    }
+    return SizedBox(
+      width: width,
+      child: card,
+    );
   }
 }

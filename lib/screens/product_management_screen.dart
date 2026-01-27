@@ -25,6 +25,10 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
   // Search controller
   final TextEditingController _searchController = TextEditingController();
 
+  // Category filter
+  String _selectedCategory = 'All';
+  List<String> _categories = ['All', 'Uncategorized', 'Wholesale'];
+
   // Loading state
   bool _isLoading = true;
 
@@ -59,7 +63,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
 
     final query = _searchController.text.toLowerCase().trim();
 
-    if (query.isEmpty) {
+    if (query.isEmpty && _selectedCategory == 'All') {
       setState(() {
         _filteredProducts = _products;
       });
@@ -67,6 +71,17 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
     }
 
     final filtered = _products.where((product) {
+      final productCategory =
+          product.category.trim().isEmpty ? 'Uncategorized' : product.category;
+      final categoryMatch = _selectedCategory == 'All' ||
+          productCategory.toLowerCase() ==
+              _selectedCategory.toLowerCase().trim();
+      if (!categoryMatch) return false;
+
+      if (query.isEmpty) {
+        return true;
+      }
+
       final nameMatch = product.name.toLowerCase().contains(query);
       final barcodeMatch = product.barcode != null &&
           product.barcode!.toLowerCase().contains(query);
@@ -78,6 +93,34 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
         _filteredProducts = filtered;
       });
     }
+  }
+
+  void _updateCategories(List<Product> products) {
+    if (!mounted) return;
+    final dynamicCategories = products
+        .map((product) => product.category.trim())
+        .where((category) => category.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    final nextCategories = <String>[
+      'All',
+      'Uncategorized',
+      'Wholesale',
+      ...dynamicCategories.where(
+        (category) =>
+            category.toLowerCase() != 'uncategorized' &&
+            category.toLowerCase() != 'wholesale',
+      ),
+    ];
+
+    setState(() {
+      _categories = nextCategories;
+      if (!_categories.contains(_selectedCategory)) {
+        _selectedCategory = 'All';
+      }
+    });
   }
 
   /// Load all products from database
@@ -93,6 +136,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
       _filteredProducts = products;
       _isLoading = false;
     });
+    _updateCategories(products);
   }
 
   /// Show barcode scanner dialog
@@ -184,6 +228,11 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
     final nameController = TextEditingController(text: product?.name ?? '');
     final barcodeController =
         TextEditingController(text: product?.barcode ?? '');
+    final categoryController = TextEditingController(
+      // For new products, start empty so 'Uncategorized' only appears as a hint,
+      // but when editing keep the existing category.
+      text: product?.category ?? '',
+    );
     final priceController = TextEditingController(
       text: product?.price.toString() ?? '',
     );
@@ -238,6 +287,16 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                   controller: nameController,
                   decoration: const InputDecoration(
                     labelText: 'Product Name *',
+                    border: OutlineInputBorder(),
+                  ),
+                  style: const TextStyle(fontSize: 18),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: categoryController,
+                  decoration: const InputDecoration(
+                    labelText: 'Category',
+                    hintText: 'e.g. Uncategorized, Wholesale',
                     border: OutlineInputBorder(),
                   ),
                   style: const TextStyle(fontSize: 18),
@@ -309,6 +368,9 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
       final newProduct = Product(
         id: product?.id,
         name: nameController.text.trim(),
+        category: categoryController.text.trim().isEmpty
+            ? 'Uncategorized'
+            : categoryController.text.trim(),
         barcode: barcodeController.text.trim().isEmpty
             ? null
             : barcodeController.text.trim(),
@@ -396,6 +458,32 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
       ),
       body: Column(
         children: [
+          // Category filter
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _categories.map((category) {
+                  final isSelected = _selectedCategory == category;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: ChoiceChip(
+                      label: Text(category),
+                      selected: isSelected,
+                      onSelected: (selected) {
+                        setState(() {
+                          _selectedCategory = category;
+                        });
+                        _filterProducts();
+                      },
+                      selectedColor: Colors.blue.shade100,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
           // Search bar
           Padding(
             padding: const EdgeInsets.all(8.0),
@@ -567,6 +655,20 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
+                  const SizedBox(height: 4),
+                  Text(
+                    'Category: ${product.category.trim().isEmpty ? 'Uncategorized' : product.category}',
+                    style: TextStyle(
+                      fontSize: ResponsiveHelper.getFontSize(
+                        context,
+                        tabletSize: 14,
+                        phoneSize: 12,
+                      ),
+                      color: Colors.grey.shade700,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   const Spacer(),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
