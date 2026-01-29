@@ -30,7 +30,7 @@ class DatabaseHelper {
     // Open or create the database
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -60,12 +60,15 @@ class DatabaseHelper {
       CREATE TABLE sales (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         total REAL NOT NULL,
-        date TEXT NOT NULL
+        date TEXT NOT NULL,
+        is_voided INTEGER NOT NULL DEFAULT 0,
+        voided_at TEXT
       )
     ''');
 
     // Create index for sales date queries
     await db.execute('CREATE INDEX idx_sales_date ON sales(date)');
+    await db.execute('CREATE INDEX idx_sales_voided ON sales(is_voided)');
 
     // Create sale_items table
     await db.execute('''
@@ -96,6 +99,14 @@ class DatabaseHelper {
       );
       await db.execute(
           'CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)');
+    }
+    if (oldVersion < 3) {
+      await db.execute(
+        "ALTER TABLE sales ADD COLUMN is_voided INTEGER NOT NULL DEFAULT 0",
+      );
+      await db.execute("ALTER TABLE sales ADD COLUMN voided_at TEXT");
+      await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_sales_voided ON sales(is_voided)');
     }
   }
 
@@ -229,6 +240,7 @@ class DatabaseHelper {
     return await db.insert('sales', {
       'total': total,
       'date': date,
+      'is_voided': 0,
     });
   }
 
@@ -249,7 +261,7 @@ class DatabaseHelper {
     final db = await database;
     return await db.query(
       'sales',
-      where: 'date = ?',
+      where: 'date = ? AND is_voided = 0',
       whereArgs: [date],
       orderBy: 'id DESC',
     );
@@ -259,7 +271,7 @@ class DatabaseHelper {
   Future<double> getTotalSalesByDate(String date) async {
     final db = await database;
     final result = await db.rawQuery(
-      'SELECT SUM(total) as total FROM sales WHERE date = ?',
+      'SELECT SUM(total) as total FROM sales WHERE date = ? AND is_voided = 0',
       [date],
     );
     if (result.isEmpty || result.first['total'] == null) {
@@ -290,7 +302,7 @@ class DatabaseHelper {
       FROM sale_items si
       INNER JOIN sales s ON si.sale_id = s.id
       INNER JOIN products p ON si.product_id = p.id
-      WHERE s.date = ?
+      WHERE s.date = ? AND s.is_voided = 0
       GROUP BY p.id
       ORDER BY total_quantity DESC
     ''', [date]);
@@ -301,7 +313,7 @@ class DatabaseHelper {
       String startDate, String endDate) async {
     final db = await database;
     final result = await db.rawQuery(
-      'SELECT SUM(total) as total FROM sales WHERE date >= ? AND date <= ?',
+      'SELECT SUM(total) as total FROM sales WHERE date >= ? AND date <= ? AND is_voided = 0',
       [startDate, endDate],
     );
     if (result.isEmpty || result.first['total'] == null) {
@@ -313,7 +325,8 @@ class DatabaseHelper {
   /// Get total sales (all time)
   Future<double> getTotalSalesAllTime() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT SUM(total) as total FROM sales');
+    final result =
+        await db.rawQuery('SELECT SUM(total) as total FROM sales WHERE is_voided = 0');
     if (result.isEmpty || result.first['total'] == null) {
       return 0.0;
     }
@@ -323,7 +336,8 @@ class DatabaseHelper {
   /// Get total number of transactions (all time)
   Future<int> getTotalTransactionCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM sales');
+    final result =
+        await db.rawQuery('SELECT COUNT(*) as count FROM sales WHERE is_voided = 0');
     return (result.first['count'] as int?) ?? 0;
   }
 
@@ -333,7 +347,7 @@ class DatabaseHelper {
     final db = await database;
     return await db.query(
       'sales',
-      where: 'date >= ? AND date <= ?',
+      where: 'date >= ? AND date <= ? AND is_voided = 0',
       whereArgs: [startDate, endDate],
       orderBy: 'id DESC',
     );
@@ -352,10 +366,49 @@ class DatabaseHelper {
       FROM sale_items si
       INNER JOIN sales s ON si.sale_id = s.id
       INNER JOIN products p ON si.product_id = p.id
-      WHERE s.date >= ? AND s.date <= ?
+      WHERE s.date >= ? AND s.date <= ? AND s.is_voided = 0
       GROUP BY p.id
       ORDER BY total_quantity DESC
     ''', [startDate, endDate]);
+  }
+
+  /// Get inventory report data for a date range
+  Future<List<Map<String, dynamic>>> getInventoryReportData(
+      String startDate, String endDate) async {
+    final db = await database;
+    return await db.rawQuery('''
+      SELECT
+        p.id as product_id,
+        p.name,
+        p.category,
+        p.quantity as remaining_stock,
+        IFNULL(SUM(
+          CASE
+            WHEN s.date >= ? AND s.date <= ? AND s.is_voided = 0
+            THEN si.quantity
+            ELSE 0
+          END
+        ), 0) as total_sold
+      FROM products p
+      LEFT JOIN sale_items si ON si.product_id = p.id
+      LEFT JOIN sales s ON s.id = si.sale_id
+      GROUP BY p.id
+      ORDER BY p.name ASC
+    ''', [startDate, endDate]);
+  }
+
+  /// Void a sale (exclude it from reports)
+  Future<void> voidSale(int saleId) async {
+    final db = await database;
+    await db.update(
+      'sales',
+      {
+        'is_voided': 1,
+        'voided_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [saleId],
+    );
   }
 
   /// Process checkout with transaction (atomic operation)
@@ -396,6 +449,7 @@ class DatabaseHelper {
       final saleId = await txn.insert('sales', {
         'total': total,
         'date': date,
+        'is_voided': 0,
       });
 
       // Process each cart item
