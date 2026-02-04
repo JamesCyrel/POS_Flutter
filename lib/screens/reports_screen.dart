@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../helpers/database_helper.dart';
 import '../helpers/responsive_helper.dart';
 import 'package:intl/intl.dart';
@@ -31,6 +32,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
   List<Map<String, dynamic>> _productsSold = [];
   double _totalSales = 0.0;
 
+  // Inventory report sort
+  String _inventorySort = 'name';
+
   // Loading state
   bool _isLoading = true;
 
@@ -50,28 +54,42 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final rawRows = await DatabaseHelper.instance.getInventoryReportData(
       startDate,
       endDate,
+      sortBy: _inventorySort,
     );
 
     return rawRows.map((row) {
       final remaining = (row['remaining_stock'] as int?) ?? 0;
       final totalSold = (row['total_sold'] as num?)?.toInt() ?? 0;
       final beginningStock = remaining + totalSold;
-      final category =
-          (row['category'] as String?)?.trim().isNotEmpty == true
-              ? row['category'] as String
-              : 'Uncategorized';
+      final capitalPrice = (row['capital_price'] as num?)?.toDouble() ?? 0.0;
+      final sellingPrice = (row['selling_price'] as num?)?.toDouble() ?? 0.0;
+      final totalCapitalPerItem = capitalPrice * remaining;
+      final category = (row['category'] as String?)?.trim().isNotEmpty == true
+          ? row['category'] as String
+          : 'Uncategorized';
 
       return {
         'product_code': row['product_id'],
         'name': row['name'] ?? '',
         'category': category,
+        'capital_price': capitalPrice,
+        'selling_price': sellingPrice,
         'beginning_stock': beginningStock,
         'total_sold': totalSold,
         'remaining_stock': remaining,
+        'total_capital_per_item': totalCapitalPerItem,
         'unit': 'pcs',
         'generated_at': generatedAt,
       };
     }).toList();
+  }
+
+  double _getTotalStoreCapital(List<Map<String, dynamic>> rows) {
+    return rows.fold<double>(
+      0.0,
+      (sum, row) =>
+          sum + ((row['total_capital_per_item'] as num?)?.toDouble() ?? 0.0),
+    );
   }
 
   Future<void> _exportInventoryReportExcel() async {
@@ -97,6 +115,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
 
     try {
+      if (!await _ensureStoragePermission()) {
+        if (mounted) Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Storage permission required to save files'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
       final info = _getReportDateRangeInfo();
       final startDate = info['startDate']!;
       final endDate = info['endDate']!;
@@ -120,18 +148,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
       sheet.appendRow(['Inventory Report']);
       sheet.appendRow([]);
       sheet.appendRow(['Date Range:', '$startDate to $endDate']);
-      sheet.appendRow([
-        'Date Generated:',
-        rows.first['generated_at'] as String
-      ]);
+      sheet
+          .appendRow(['Date Generated:', rows.first['generated_at'] as String]);
       sheet.appendRow([]);
       sheet.appendRow([
         'Product Code',
         'Product Name',
         'Category',
+        'Capital Price',
+        'Selling Price',
         'Beginning Stock',
         'Total Sold',
         'Remaining Stock',
+        'Total Capital per Item',
         'Unit',
         'Date Generated',
       ]);
@@ -141,13 +170,30 @@ class _ReportsScreenState extends State<ReportsScreen> {
           row['product_code'],
           row['name'],
           row['category'],
+          (row['capital_price'] as num).toStringAsFixed(2),
+          (row['selling_price'] as num).toStringAsFixed(2),
           row['beginning_stock'],
           row['total_sold'],
           row['remaining_stock'],
+          (row['total_capital_per_item'] as num).toStringAsFixed(2),
           row['unit'],
           row['generated_at'],
         ]);
       }
+
+      final totalStoreCapital = _getTotalStoreCapital(rows);
+      sheet.appendRow([]);
+      sheet.appendRow([
+        'TOTAL STORE CAPITAL',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '₱${totalStoreCapital.toStringAsFixed(2)}'
+      ]);
 
       final downloadsDir = await _getDownloadsDirectory();
       final dateStr = _reportType == 'custom'
@@ -210,6 +256,161 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
+  String _escapeCsv(String value) {
+    final needsQuotes =
+        value.contains(',') || value.contains('"') || value.contains('\n');
+    if (!needsQuotes) return value;
+    final escaped = value.replaceAll('"', '""');
+    return '"$escaped"';
+  }
+
+  Future<void> _exportInventoryReportCsv() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Generating inventory CSV...'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      if (!await _ensureStoragePermission()) {
+        if (mounted) Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Storage permission required to save files'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final info = _getReportDateRangeInfo();
+      final startDate = info['startDate']!;
+      final endDate = info['endDate']!;
+
+      final rows = await _getInventoryReportRows();
+      if (rows.isEmpty) {
+        if (mounted) Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No inventory data to export'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      final buffer = StringBuffer();
+      buffer.writeln('Inventory Report');
+      buffer.writeln('Date Range,${_escapeCsv('$startDate to $endDate')}');
+      buffer.writeln(
+          'Date Generated,${_escapeCsv(rows.first['generated_at'] as String)}');
+      buffer.writeln();
+      buffer.writeln([
+        'Product Code',
+        'Product Name',
+        'Category',
+        'Capital Price',
+        'Selling Price',
+        'Beginning Stock',
+        'Total Sold',
+        'Remaining Stock',
+        'Total Capital per Item',
+        'Unit',
+        'Date Generated',
+      ].join(','));
+
+      for (final row in rows) {
+        buffer.writeln([
+          row['product_code'],
+          _escapeCsv('${row['name']}'),
+          _escapeCsv('${row['category']}'),
+          (row['capital_price'] as num).toStringAsFixed(2),
+          (row['selling_price'] as num).toStringAsFixed(2),
+          row['beginning_stock'],
+          row['total_sold'],
+          row['remaining_stock'],
+          (row['total_capital_per_item'] as num).toStringAsFixed(2),
+          row['unit'],
+          _escapeCsv('${row['generated_at']}'),
+        ].join(','));
+      }
+
+      buffer.writeln();
+      buffer.writeln('TOTAL STORE CAPITAL,,,' +
+          ',,,,,' +
+          _getTotalStoreCapital(rows).toStringAsFixed(2));
+
+      final downloadsDir = await _getDownloadsDirectory();
+      final dateStr = _reportType == 'custom'
+          ? '${DateFormat('yyyyMMdd').format(_startDate)}_${DateFormat('yyyyMMdd').format(_endDate)}'
+          : _reportType == 'yearly'
+              ? DateFormat('yyyy').format(_startDate)
+              : DateFormat('yyyyMMdd').format(_startDate);
+      final fileName = 'Inventory_Report_${_reportType}_$dateStr.csv';
+      final filePath = '${downloadsDir.path}/$fileName';
+      await File(filePath).writeAsString(buffer.toString());
+
+      if (mounted) Navigator.pop(context);
+
+      if (mounted) {
+        final isDownloads = downloadsDir.path.contains('Download');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Inventory CSV saved successfully!'),
+                const SizedBox(height: 4),
+                Text(
+                  isDownloads
+                      ? 'Location: Downloads/$fileName'
+                      : 'File: $fileName',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'Share',
+              textColor: Colors.white,
+              onPressed: () async {
+                await Share.shareXFiles([XFile(filePath)],
+                    text: 'Inventory Report');
+              },
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error exporting inventory CSV: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _exportInventoryReportPdf() async {
     // Show loading dialog
     showDialog(
@@ -233,6 +434,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
 
     try {
+      if (!await _ensureStoragePermission()) {
+        if (mounted) Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Storage permission required to save files'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
       final info = _getReportDateRangeInfo();
       final startDate = info['startDate']!;
       final endDate = info['endDate']!;
@@ -270,9 +481,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 'Product Code',
                 'Product Name',
                 'Category',
-                'Beginning Stock',
-                'Total Sold',
-                'Remaining Stock',
+                'Capital',
+                'Selling',
+                'Beg.',
+                'Sold',
+                'Remain',
+                'Total Cap.',
                 'Unit',
                 'Date Generated',
               ],
@@ -281,19 +495,28 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         '${row['product_code']}',
                         '${row['name']}',
                         '${row['category']}',
+                        (row['capital_price'] as num).toStringAsFixed(2),
+                        (row['selling_price'] as num).toStringAsFixed(2),
                         '${row['beginning_stock']}',
                         '${row['total_sold']}',
                         '${row['remaining_stock']}',
+                        (row['total_capital_per_item'] as num)
+                            .toStringAsFixed(2),
                         '${row['unit']}',
                         '${row['generated_at']}',
                       ])
                   .toList(),
               headerStyle: pw.TextStyle(
-                fontSize: 8,
+                fontSize: 7,
                 fontWeight: pw.FontWeight.bold,
               ),
-              cellStyle: const pw.TextStyle(fontSize: 8),
+              cellStyle: const pw.TextStyle(fontSize: 7),
               cellAlignment: pw.Alignment.centerLeft,
+            ),
+            pw.SizedBox(height: 8),
+            pw.Text(
+              'Total Store Capital: ₱${_getTotalStoreCapital(rows).toStringAsFixed(2)}',
+              style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
             ),
           ],
         ),
@@ -511,9 +734,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
         initialDate: _startDate,
         firstDate: DateTime(2020),
         lastDate: DateTime.now(),
-        initialDatePickerMode: _reportType == 'monthly' || _reportType == 'yearly'
-            ? DatePickerMode.year
-            : DatePickerMode.day,
+        initialDatePickerMode:
+            _reportType == 'monthly' || _reportType == 'yearly'
+                ? DatePickerMode.year
+                : DatePickerMode.day,
       );
 
       if (picked != null) {
@@ -619,6 +843,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
 
     return downloadsDir;
+  }
+
+  Future<bool> _ensureStoragePermission() async {
+    if (!Platform.isAndroid) return true;
+
+    final manageStatus = await Permission.manageExternalStorage.request();
+    if (manageStatus.isGranted) {
+      return true;
+    }
+
+    final storageStatus = await Permission.storage.request();
+    if (storageStatus.isGranted) {
+      return true;
+    }
+
+    await openAppSettings();
+    return false;
   }
 
   /// Export report to Excel
@@ -792,6 +1033,181 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
+  Future<void> _exportSalesReportPdf() async {
+    if (_sales.isEmpty && _productsSold.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No data to export'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Generating PDF report...'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      if (!await _ensureStoragePermission()) {
+        if (mounted) Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Storage permission required to save files'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final info = _getReportDateRangeInfo();
+      final startDate = info['startDate']!;
+      final endDate = info['endDate']!;
+      final reportTitle = info['reportTitle']!;
+
+      final pdf = pw.Document();
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          build: (context) => [
+            pw.Text(
+              reportTitle,
+              style: pw.TextStyle(
+                fontSize: 18,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Text('Date Range: $startDate to $endDate'),
+            pw.Text(
+              'Generated: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}',
+            ),
+            pw.SizedBox(height: 12),
+            pw.Text('Summary',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 6),
+            pw.Text('Total Sales: ₱${_totalSales.toStringAsFixed(2)}'),
+            pw.Text('Transactions: ${_sales.length}'),
+            pw.Text('Products Sold: ${_productsSold.length}'),
+            pw.SizedBox(height: 12),
+            pw.Text('Sales Transactions',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 6),
+            pw.Table.fromTextArray(
+              headers: ['Sale ID', 'Date', 'Total (₱)'],
+              data: _sales
+                  .map((sale) => [
+                        '${sale['id']}',
+                        '${sale['date']}',
+                        (sale['total'] as num).toStringAsFixed(2),
+                      ])
+                  .toList(),
+              headerStyle: pw.TextStyle(
+                fontSize: 9,
+                fontWeight: pw.FontWeight.bold,
+              ),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              cellAlignment: pw.Alignment.centerLeft,
+            ),
+            pw.SizedBox(height: 12),
+            pw.Text('Products Sold',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 6),
+            pw.Table.fromTextArray(
+              headers: ['Product', 'Barcode', 'Qty', 'Revenue (₱)'],
+              data: _productsSold
+                  .map((product) => [
+                        '${product['name']}',
+                        product['barcode'] ?? 'N/A',
+                        '${product['total_quantity']}',
+                        (product['total_revenue'] as num).toStringAsFixed(2),
+                      ])
+                  .toList(),
+              headerStyle: pw.TextStyle(
+                fontSize: 9,
+                fontWeight: pw.FontWeight.bold,
+              ),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              cellAlignment: pw.Alignment.centerLeft,
+            ),
+          ],
+        ),
+      );
+
+      final downloadsDir = await _getDownloadsDirectory();
+      final dateStr = _reportType == 'custom'
+          ? '${DateFormat('yyyyMMdd').format(_startDate)}_${DateFormat('yyyyMMdd').format(_endDate)}'
+          : _reportType == 'yearly'
+              ? DateFormat('yyyy').format(_startDate)
+              : DateFormat('yyyyMMdd').format(_startDate);
+      final fileName = 'Sales_Report_${_reportType}_$dateStr.pdf';
+      final filePath = '${downloadsDir.path}/$fileName';
+      final file = File(filePath);
+      final bytes = await pdf.save();
+      await file.writeAsBytes(bytes);
+
+      if (mounted) Navigator.pop(context);
+
+      if (mounted) {
+        final isDownloads = downloadsDir.path.contains('Download');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Sales PDF saved successfully!'),
+                const SizedBox(height: 4),
+                Text(
+                  isDownloads
+                      ? 'Location: Downloads/$fileName'
+                      : 'File: $fileName',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'Share',
+              textColor: Colors.white,
+              onPressed: () async {
+                await Share.shareXFiles([XFile(filePath)], text: reportTitle);
+              },
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error exporting PDF: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -860,10 +1276,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               ),
                               ElevatedButton.icon(
                                 onPressed: _exportToExcel,
-                                icon: const Icon(Icons.download),
+                                icon: const Icon(Icons.table_view),
                                 label: const Text('Export Excel'),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                              ElevatedButton.icon(
+                                onPressed: _exportSalesReportPdf,
+                                icon: const Icon(Icons.picture_as_pdf),
+                                label: const Text('Export PDF'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red.shade600,
                                   foregroundColor: Colors.white,
                                 ),
                               ),
@@ -939,6 +1364,30 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               color: Colors.grey.shade700,
                             ),
                           ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              ChoiceChip(
+                                label: const Text('Sort: Name'),
+                                selected: _inventorySort == 'name',
+                                onSelected: (_) {
+                                  setState(() {
+                                    _inventorySort = 'name';
+                                  });
+                                },
+                              ),
+                              ChoiceChip(
+                                label: const Text('Sort: Category'),
+                                selected: _inventorySort == 'category',
+                                onSelected: (_) {
+                                  setState(() {
+                                    _inventorySort = 'category';
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
                           const SizedBox(height: 12),
                           Wrap(
                             spacing: 12,
@@ -948,6 +1397,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 onPressed: _exportInventoryReportExcel,
                                 icon: const Icon(Icons.table_view),
                                 label: const Text('Export Excel'),
+                              ),
+                              ElevatedButton.icon(
+                                onPressed: _exportInventoryReportCsv,
+                                icon: const Icon(Icons.description),
+                                label: const Text('Export CSV'),
                               ),
                               ElevatedButton.icon(
                                 onPressed: _exportInventoryReportPdf,
@@ -986,8 +1440,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 _buildSalesTransactions(context,
                                     shrinkWrap: true),
                                 const SizedBox(height: 12),
-                                _buildProductsSold(context,
-                                    shrinkWrap: true),
+                                _buildProductsSold(context, shrinkWrap: true),
                               ],
                             ),
                     ),
@@ -1110,8 +1563,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   /// Build products sold section
-  Widget _buildProductsSold(BuildContext context,
-      {bool shrinkWrap = false}) {
+  Widget _buildProductsSold(BuildContext context, {bool shrinkWrap = false}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

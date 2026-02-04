@@ -30,9 +30,12 @@ class DatabaseHelper {
     // Open or create the database
     return await openDatabase(
       path,
-      version: 3,
+      version: 5,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
+      onOpen: (db) async {
+        await _ensureSchema(db);
+      },
     );
   }
 
@@ -45,6 +48,8 @@ class DatabaseHelper {
         name TEXT NOT NULL,
         category TEXT NOT NULL DEFAULT 'Uncategorized',
         barcode TEXT,
+        image_path TEXT,
+        capital_price REAL NOT NULL DEFAULT 0,
         price REAL NOT NULL,
         quantity INTEGER NOT NULL DEFAULT 0
       )
@@ -53,7 +58,8 @@ class DatabaseHelper {
     // Create indexes for better performance
     await db.execute('CREATE INDEX idx_products_barcode ON products(barcode)');
     await db.execute('CREATE INDEX idx_products_name ON products(name)');
-    await db.execute('CREATE INDEX idx_products_category ON products(category)');
+    await db
+        .execute('CREATE INDEX idx_products_category ON products(category)');
 
     // Create sales table
     await db.execute('''
@@ -108,6 +114,51 @@ class DatabaseHelper {
       await db.execute(
           'CREATE INDEX IF NOT EXISTS idx_sales_voided ON sales(is_voided)');
     }
+    if (oldVersion < 4) {
+      await db.execute("ALTER TABLE products ADD COLUMN image_path TEXT");
+    }
+    if (oldVersion < 5) {
+      await db.execute(
+          "ALTER TABLE products ADD COLUMN capital_price REAL NOT NULL DEFAULT 0");
+      // Backfill capital price using selling price for existing products
+      await db.execute(
+          "UPDATE products SET capital_price = price WHERE capital_price IS NULL OR capital_price = 0");
+    }
+  }
+
+  Future<void> _ensureSchema(Database db) async {
+    // Ensure products columns
+    if (!await _columnExists(db, 'products', 'category')) {
+      await db.execute(
+          "ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Uncategorized'");
+    }
+    if (!await _columnExists(db, 'products', 'image_path')) {
+      await db.execute("ALTER TABLE products ADD COLUMN image_path TEXT");
+    }
+    if (!await _columnExists(db, 'products', 'capital_price')) {
+      await db.execute(
+          "ALTER TABLE products ADD COLUMN capital_price REAL NOT NULL DEFAULT 0");
+    }
+    await db.execute(
+        "UPDATE products SET capital_price = price WHERE capital_price IS NULL OR capital_price = 0");
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)');
+
+    // Ensure sales columns
+    if (!await _columnExists(db, 'sales', 'is_voided')) {
+      await db.execute(
+          "ALTER TABLE sales ADD COLUMN is_voided INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!await _columnExists(db, 'sales', 'voided_at')) {
+      await db.execute("ALTER TABLE sales ADD COLUMN voided_at TEXT");
+    }
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_sales_voided ON sales(is_voided)');
+  }
+
+  Future<bool> _columnExists(Database db, String table, String column) async {
+    final result = await db.rawQuery('PRAGMA table_info($table)');
+    return result.any((row) => row['name'] == column);
   }
 
   // ========== PRODUCT OPERATIONS ==========
@@ -162,6 +213,18 @@ class DatabaseHelper {
       'SELECT COUNT(*) as count FROM products WHERE quantity <= 0',
     );
     return (result.first['count'] as int?) ?? 0;
+  }
+
+  /// Get total store capital (sum of capital_price * quantity)
+  Future<double> getTotalStoreCapital() async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT SUM(capital_price * quantity) as total FROM products',
+    );
+    if (result.isEmpty || result.first['total'] == null) {
+      return 0.0;
+    }
+    return (result.first['total'] as num).toDouble();
   }
 
   /// Get products with low stock (quantity <= threshold)
@@ -325,8 +388,8 @@ class DatabaseHelper {
   /// Get total sales (all time)
   Future<double> getTotalSalesAllTime() async {
     final db = await database;
-    final result =
-        await db.rawQuery('SELECT SUM(total) as total FROM sales WHERE is_voided = 0');
+    final result = await db
+        .rawQuery('SELECT SUM(total) as total FROM sales WHERE is_voided = 0');
     if (result.isEmpty || result.first['total'] == null) {
       return 0.0;
     }
@@ -336,8 +399,8 @@ class DatabaseHelper {
   /// Get total number of transactions (all time)
   Future<int> getTotalTransactionCount() async {
     final db = await database;
-    final result =
-        await db.rawQuery('SELECT COUNT(*) as count FROM sales WHERE is_voided = 0');
+    final result = await db
+        .rawQuery('SELECT COUNT(*) as count FROM sales WHERE is_voided = 0');
     return (result.first['count'] as int?) ?? 0;
   }
 
@@ -374,13 +437,19 @@ class DatabaseHelper {
 
   /// Get inventory report data for a date range
   Future<List<Map<String, dynamic>>> getInventoryReportData(
-      String startDate, String endDate) async {
+      String startDate, String endDate,
+      {String sortBy = 'name'}) async {
     final db = await database;
+    final orderClause = sortBy.toLowerCase() == 'category'
+        ? 'p.category ASC, p.name ASC'
+        : 'p.name ASC';
     return await db.rawQuery('''
       SELECT
         p.id as product_id,
         p.name,
         p.category,
+        p.capital_price,
+        p.price as selling_price,
         p.quantity as remaining_stock,
         IFNULL(SUM(
           CASE
@@ -393,22 +462,63 @@ class DatabaseHelper {
       LEFT JOIN sale_items si ON si.product_id = p.id
       LEFT JOIN sales s ON s.id = si.sale_id
       GROUP BY p.id
-      ORDER BY p.name ASC
+      ORDER BY $orderClause
     ''', [startDate, endDate]);
   }
 
   /// Void a sale (exclude it from reports)
   Future<void> voidSale(int saleId) async {
     final db = await database;
-    await db.update(
-      'sales',
-      {
-        'is_voided': 1,
-        'voided_at': DateTime.now().toIso8601String(),
-      },
-      where: 'id = ?',
-      whereArgs: [saleId],
-    );
+    await db.transaction((txn) async {
+      final saleResult = await txn.query(
+        'sales',
+        where: 'id = ?',
+        whereArgs: [saleId],
+      );
+
+      if (saleResult.isEmpty) {
+        throw Exception('Sale not found');
+      }
+
+      final isVoided = (saleResult.first['is_voided'] as int?) ?? 0;
+      if (isVoided == 1) {
+        return;
+      }
+
+      final saleItems = await txn.query(
+        'sale_items',
+        where: 'sale_id = ?',
+        whereArgs: [saleId],
+      );
+
+      for (final item in saleItems) {
+        final productId = item['product_id'] as int;
+        final quantity = item['quantity'] as int;
+        final productResult = await txn.query(
+          'products',
+          where: 'id = ?',
+          whereArgs: [productId],
+        );
+        if (productResult.isEmpty) continue;
+        final currentStock = productResult.first['quantity'] as int;
+        await txn.update(
+          'products',
+          {'quantity': currentStock + quantity},
+          where: 'id = ?',
+          whereArgs: [productId],
+        );
+      }
+
+      await txn.update(
+        'sales',
+        {
+          'is_voided': 1,
+          'voided_at': DateTime.now().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [saleId],
+      );
+    });
   }
 
   /// Process checkout with transaction (atomic operation)

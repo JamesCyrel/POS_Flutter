@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/product.dart';
 import '../helpers/database_helper.dart';
 import '../helpers/responsive_helper.dart';
@@ -34,6 +36,9 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
 
   // Debounce timer for search
   Timer? _searchDebounce;
+
+  // Image picker
+  final ImagePicker _imagePicker = ImagePicker();
 
   @override
   void initState() {
@@ -233,12 +238,18 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
       // but when editing keep the existing category.
       text: product?.category ?? '',
     );
+    final capitalController = TextEditingController(
+      text: product?.capitalPrice != null && product!.capitalPrice > 0
+          ? product.capitalPrice.toStringAsFixed(2)
+          : '',
+    );
     final priceController = TextEditingController(
       text: product?.price.toString() ?? '',
     );
     final quantityController = TextEditingController(
       text: product?.quantity.toString() ?? '0',
     );
+    String? selectedImagePath = product?.imagePath;
 
     final result = await showDialog<bool>(
       context: context,
@@ -249,6 +260,73 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Image picker
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 72,
+                      height: 72,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        color: Colors.grey.shade200,
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: selectedImagePath != null
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.file(
+                                File(selectedImagePath!),
+                                fit: BoxFit.cover,
+                              ),
+                            )
+                          : const Icon(
+                              Icons.image,
+                              color: Colors.grey,
+                              size: 32,
+                            ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: () async {
+                              final picked = await _imagePicker.pickImage(
+                                source: ImageSource.gallery,
+                                maxWidth: 1024,
+                                maxHeight: 1024,
+                                imageQuality: 85,
+                              );
+                              if (picked != null) {
+                                selectedImagePath = picked.path;
+                                setDialogState(() {});
+                              }
+                            },
+                            icon: const Icon(Icons.photo_library),
+                            label: const Text('Select Image'),
+                          ),
+                          if (selectedImagePath != null) ...[
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: () {
+                                selectedImagePath = null;
+                                setDialogState(() {});
+                              },
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              label: const Text(
+                                'Remove Image',
+                                style: TextStyle(color: Colors.red),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
                 // Barcode field with scan button
                 TextField(
                   controller: barcodeController,
@@ -299,6 +377,18 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                     hintText: 'e.g. Uncategorized, Wholesale',
                     border: OutlineInputBorder(),
                   ),
+                  style: const TextStyle(fontSize: 18),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: capitalController,
+                  decoration: const InputDecoration(
+                    labelText: 'Capital Price (Puhunan)',
+                    border: OutlineInputBorder(),
+                    prefixText: '₱',
+                  ),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
                   style: const TextStyle(fontSize: 18),
                 ),
                 const SizedBox(height: 16),
@@ -356,6 +446,16 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
         return;
       }
 
+      final capitalInput = capitalController.text.trim();
+      final capitalPrice =
+          capitalInput.isEmpty ? price : double.tryParse(capitalInput);
+      if (capitalPrice == null || capitalPrice < 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Valid capital price is required')),
+        );
+        return;
+      }
+
       final quantity = int.tryParse(quantityController.text) ?? 0;
       if (quantity < 0) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -374,6 +474,8 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
         barcode: barcodeController.text.trim().isEmpty
             ? null
             : barcodeController.text.trim(),
+        imagePath: selectedImagePath,
+        capitalPrice: capitalPrice,
         price: price,
         quantity: quantity,
       );
@@ -599,6 +701,30 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (product.imagePath != null)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.file(
+                        File(product.imagePath!),
+                        height: ResponsiveHelper.isTablet(context) ? 80 : 60,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    )
+                  else
+                    Container(
+                      height: ResponsiveHelper.isTablet(context) ? 80 : 60,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.image,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  const SizedBox(height: 8),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -658,6 +784,20 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                   const SizedBox(height: 4),
                   Text(
                     'Category: ${product.category.trim().isEmpty ? 'Uncategorized' : product.category}',
+                    style: TextStyle(
+                      fontSize: ResponsiveHelper.getFontSize(
+                        context,
+                        tabletSize: 14,
+                        phoneSize: 12,
+                      ),
+                      color: Colors.grey.shade700,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Capital: ₱${product.capitalPrice.toStringAsFixed(2)}',
                     style: TextStyle(
                       fontSize: ResponsiveHelper.getFontSize(
                         context,

@@ -24,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _totalTransactions = 0;
   int _categoryCount = 0;
   double _totalSales = 0.0;
+  double _totalCapital = 0.0;
 
   @override
   void initState() {
@@ -51,6 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final totalTransactions =
           await DatabaseHelper.instance.getTotalTransactionCount();
       final categories = await DatabaseHelper.instance.getDistinctCategories();
+      final totalCapital = await DatabaseHelper.instance.getTotalStoreCapital();
       if (mounted) {
         setState(() {
           _lowStockProducts = lowStockProducts;
@@ -58,6 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _totalProducts = totalProducts;
           _outOfStockCount = outOfStockCount;
           _totalSales = totalSales;
+          _totalCapital = totalCapital;
           _totalTransactions = totalTransactions;
           _categoryCount = categories.length;
         });
@@ -189,6 +192,13 @@ class _HomeScreenState extends State<HomeScreen> {
         width: cardWidth,
       ),
       _buildAnalyticsCard(
+        title: 'Total Capital',
+        value: '₱${currencyFormat.format(_totalCapital)}',
+        icon: Icons.account_balance_wallet,
+        color: Colors.indigo,
+        width: cardWidth,
+      ),
+      _buildAnalyticsCard(
         title: 'Transactions',
         value: '$_totalTransactions',
         icon: Icons.receipt_long,
@@ -297,13 +307,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      value,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        value,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),

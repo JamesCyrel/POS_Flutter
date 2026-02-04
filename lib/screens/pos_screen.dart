@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../models/product.dart';
 import '../helpers/database_helper.dart';
 import '../helpers/responsive_helper.dart';
+import 'payment_screen.dart';
 import 'package:intl/intl.dart';
 
 /// Cart Item Model (for temporary cart storage)
@@ -37,9 +39,6 @@ class _POSScreenState extends State<POSScreen> {
   // Mode: 'scan' or 'manual'
   String _mode = 'scan';
 
-  // Customer payment controller
-  final TextEditingController _customerGaveController = TextEditingController();
-
   // Search controller for manual product selection
   final TextEditingController _searchController = TextEditingController();
 
@@ -68,7 +67,6 @@ class _POSScreenState extends State<POSScreen> {
     _searchDebounce?.cancel();
     _scannerController?.stop();
     _scannerController?.dispose();
-    _customerGaveController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -239,13 +237,6 @@ class _POSScreenState extends State<POSScreen> {
         duration: const Duration(seconds: 1),
       ),
     );
-  }
-
-  /// Calculate change (customer gave - total)
-  double get _change {
-    final customerGave = double.tryParse(_customerGaveController.text) ?? 0.0;
-    final change = customerGave - _cartTotal;
-    return change < 0 ? 0.0 : change;
   }
 
   /// Calculate total amount in cart
@@ -429,8 +420,8 @@ class _POSScreenState extends State<POSScreen> {
     });
   }
 
-  /// Process checkout
-  Future<void> _checkout() async {
+  /// Open payment screen
+  Future<void> _openPaymentScreen() async {
     if (_cart.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Cart is empty')),
@@ -438,44 +429,23 @@ class _POSScreenState extends State<POSScreen> {
       return;
     }
 
-    final customerGave =
-        double.tryParse(_customerGaveController.text.trim()) ?? 0.0;
-    if (customerGave < _cartTotal) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Customer payment is less than total'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    // Capture total before any state changes so it doesn't reset to 0
-    final double checkoutTotal = _cartTotal;
-
-    // Confirm checkout
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Checkout'),
-        content: Text(
-          'Total: ₱${_cartTotal.toStringAsFixed(2)}\n\n'
-          'Proceed with checkout?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Confirm'),
-          ),
-        ],
+    final total = _cartTotal;
+    final customerGave = await Navigator.push<double>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PaymentScreen(total: total),
       ),
     );
 
-    if (confirm != true) return;
+    if (customerGave == null) return;
+
+    await _checkout(customerGave, total);
+  }
+
+  /// Process checkout
+  Future<void> _checkout(double customerGave, double total) async {
+    // Capture total before any state changes so it doesn't reset to 0
+    final double checkoutTotal = total;
 
     // Show loading indicator
     if (!mounted) return;
@@ -525,20 +495,20 @@ class _POSScreenState extends State<POSScreen> {
         Navigator.pop(context);
       }
 
-      // Clear cart and customer payment
+      // Clear cart
       setState(() {
         _cart.clear();
-        _customerGaveController.clear();
       });
 
       // Reload products to update stock levels
       _loadProducts();
 
       if (mounted) {
+        final change = customerGave - checkoutTotal;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Sale completed! Total: ₱${checkoutTotal.toStringAsFixed(2)}',
+              'Sale completed! Total: ₱${checkoutTotal.toStringAsFixed(2)} | Change: ₱${change.toStringAsFixed(2)}',
             ),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 2),
@@ -603,7 +573,7 @@ class _POSScreenState extends State<POSScreen> {
               children: [
                 // Product selection section on top for phones
                 SizedBox(
-                  height: MediaQuery.of(context).size.height * 0.4,
+                  height: MediaQuery.of(context).size.height * 0.55,
                   child: _buildProductSelectionSection(context),
                 ),
                 // Cart section below
@@ -862,7 +832,7 @@ class _POSScreenState extends State<POSScreen> {
                   },
                 ),
         ),
-        // Total, customer payment, change, and checkout
+        // Checkout button
         Container(
           padding: EdgeInsets.all(
             ResponsiveHelper.isTablet(context) ? 16 : 12,
@@ -871,133 +841,27 @@ class _POSScreenState extends State<POSScreen> {
             color: Colors.grey.shade100,
             border: Border(top: BorderSide(color: Colors.grey.shade300)),
           ),
-          child: Column(
-            children: [
-              // Total
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Total:',
-                    style: TextStyle(
-                      fontSize: ResponsiveHelper.getFontSize(
-                        context,
-                        tabletSize: 24,
-                        phoneSize: 20,
-                      ),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    '₱${_cartTotal.toStringAsFixed(2)}',
-                    style: TextStyle(
-                      fontSize: ResponsiveHelper.getFontSize(
-                        context,
-                        tabletSize: 32,
-                        phoneSize: 24,
-                      ),
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green,
-                    ),
-                  ),
-                ],
+          child: SizedBox(
+            width: double.infinity,
+            height: ResponsiveHelper.isTablet(context) ? 60 : 48,
+            child: ElevatedButton(
+              onPressed: _openPaymentScreen,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
               ),
-              SizedBox(
-                height: ResponsiveHelper.isTablet(context) ? 16 : 12,
-              ),
-              // Customer Gave input
-              TextField(
-                controller: _customerGaveController,
-                decoration: const InputDecoration(
-                  labelText: 'Customer Gave',
-                  border: OutlineInputBorder(),
-                  prefixText: '₱',
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+              child: Text(
+                'CHECKOUT',
                 style: TextStyle(
                   fontSize: ResponsiveHelper.getFontSize(
                     context,
-                    tabletSize: 20,
-                    phoneSize: 16,
+                    tabletSize: 24,
+                    phoneSize: 18,
                   ),
-                ),
-                onChanged: (value) {
-                  setState(() {}); // Rebuild to update change
-                },
-              ),
-              SizedBox(
-                height: ResponsiveHelper.isTablet(context) ? 16 : 12,
-              ),
-              // Change display
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color:
-                      _change > 0 ? Colors.green.shade50 : Colors.grey.shade200,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: _change > 0 ? Colors.green : Colors.grey,
-                    width: 2,
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Change:',
-                      style: TextStyle(
-                        fontSize: ResponsiveHelper.getFontSize(
-                          context,
-                          tabletSize: 22,
-                          phoneSize: 18,
-                        ),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      '₱${_change.toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontSize: ResponsiveHelper.getFontSize(
-                          context,
-                          tabletSize: 28,
-                          phoneSize: 22,
-                        ),
-                        fontWeight: FontWeight.bold,
-                        color: _change > 0 ? Colors.green : Colors.grey,
-                      ),
-                    ),
-                  ],
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-              SizedBox(
-                height: ResponsiveHelper.isTablet(context) ? 16 : 12,
-              ),
-              SizedBox(
-                width: double.infinity,
-                height: ResponsiveHelper.isTablet(context) ? 60 : 48,
-                child: ElevatedButton(
-                  onPressed: _checkout,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: Text(
-                    'CHECKOUT',
-                    style: TextStyle(
-                      fontSize: ResponsiveHelper.getFontSize(
-                        context,
-                        tabletSize: 24,
-                        phoneSize: 18,
-                      ),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ],
@@ -1339,6 +1203,26 @@ class _POSScreenState extends State<POSScreen> {
                             contentPadding: EdgeInsets.symmetric(
                               horizontal: isTablet ? 16 : 12,
                               vertical: isTablet ? 8 : 4,
+                            ),
+                            leading: Container(
+                              width: isTablet ? 48 : 40,
+                              height: isTablet ? 48 : 40,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                color: Colors.grey.shade200,
+                              ),
+                              child: product.imagePath != null
+                                  ? ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.file(
+                                        File(product.imagePath!),
+                                        fit: BoxFit.cover,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.image,
+                                      color: Colors.grey,
+                                    ),
                             ),
                             title: Text(
                               product.name,
