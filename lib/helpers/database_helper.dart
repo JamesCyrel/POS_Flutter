@@ -30,7 +30,7 @@ class DatabaseHelper {
     // Open or create the database
     return await openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
       onOpen: (db) async {
@@ -50,6 +50,7 @@ class DatabaseHelper {
         barcode TEXT,
         image_path TEXT,
         capital_price REAL NOT NULL DEFAULT 0,
+        discount_rules TEXT,
         price REAL NOT NULL,
         quantity INTEGER NOT NULL DEFAULT 0
       )
@@ -124,6 +125,9 @@ class DatabaseHelper {
       await db.execute(
           "UPDATE products SET capital_price = price WHERE capital_price IS NULL OR capital_price = 0");
     }
+    if (oldVersion < 6) {
+      await db.execute("ALTER TABLE products ADD COLUMN discount_rules TEXT");
+    }
   }
 
   Future<void> _ensureSchema(Database db) async {
@@ -138,6 +142,9 @@ class DatabaseHelper {
     if (!await _columnExists(db, 'products', 'capital_price')) {
       await db.execute(
           "ALTER TABLE products ADD COLUMN capital_price REAL NOT NULL DEFAULT 0");
+    }
+    if (!await _columnExists(db, 'products', 'discount_rules')) {
+      await db.execute("ALTER TABLE products ADD COLUMN discount_rules TEXT");
     }
     await db.execute(
         "UPDATE products SET capital_price = price WHERE capital_price IS NULL OR capital_price = 0");

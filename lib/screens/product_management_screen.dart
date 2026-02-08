@@ -250,6 +250,13 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
       text: product?.quantity.toString() ?? '0',
     );
     String? selectedImagePath = product?.imagePath;
+    final discountRuleControllers = <Map<String, TextEditingController>>[
+      for (final rule in product?.discountRules ?? [])
+        {
+          'qty': TextEditingController(text: rule.minQty.toString()),
+          'percent': TextEditingController(text: rule.percent.toString()),
+        },
+    ];
 
     final result = await showDialog<bool>(
       context: context,
@@ -392,6 +399,90 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                   style: const TextStyle(fontSize: 18),
                 ),
                 const SizedBox(height: 16),
+                // Discount rules
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Quantity Discounts (%)',
+                    style: TextStyle(
+                      fontSize: ResponsiveHelper.getFontSize(
+                        context,
+                        tabletSize: 16,
+                        phoneSize: 14,
+                      ),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (discountRuleControllers.isEmpty)
+                  Text(
+                    'No discount rules yet.',
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontSize: ResponsiveHelper.getFontSize(
+                        context,
+                        tabletSize: 14,
+                        phoneSize: 12,
+                      ),
+                    ),
+                  ),
+                ...discountRuleControllers.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final qtyController = entry.value['qty']!;
+                  final percentController = entry.value['percent']!;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: qtyController,
+                            decoration: const InputDecoration(
+                              labelText: 'Min Qty',
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: percentController,
+                            decoration: const InputDecoration(
+                              labelText: 'Discount %',
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          onPressed: () {
+                            discountRuleControllers.removeAt(index);
+                            setDialogState(() {});
+                          },
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () {
+                      discountRuleControllers.add({
+                        'qty': TextEditingController(),
+                        'percent': TextEditingController(),
+                      });
+                      setDialogState(() {});
+                    },
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Discount Rule'),
+                  ),
+                ),
+                const SizedBox(height: 16),
                 TextField(
                   controller: priceController,
                   decoration: const InputDecoration(
@@ -464,6 +555,26 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
         return;
       }
 
+      final discountRules = <DiscountRule>[];
+      for (final entry in discountRuleControllers) {
+        final qtyText = entry['qty']!.text.trim();
+        final percentText = entry['percent']!.text.trim();
+        if (qtyText.isEmpty && percentText.isEmpty) {
+          continue;
+        }
+        final qty = int.tryParse(qtyText);
+        final percent = double.tryParse(percentText);
+        if (qty == null || qty <= 0 || percent == null || percent <= 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Valid discount rule values are required')),
+          );
+          return;
+        }
+        discountRules.add(DiscountRule(minQty: qty, percent: percent));
+      }
+      discountRules.sort((a, b) => a.minQty.compareTo(b.minQty));
+
       // Create or update product
       final newProduct = Product(
         id: product?.id,
@@ -476,6 +587,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
             : barcodeController.text.trim(),
         imagePath: selectedImagePath,
         capitalPrice: capitalPrice,
+        discountRules: discountRules,
         price: price,
         quantity: quantity,
       );
@@ -809,6 +921,22 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  if (product.discountRules.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Discounts: ${product.discountRules.map((r) => '${r.minQty}+ @ ${r.percent}%').join(', ')}',
+                      style: TextStyle(
+                        fontSize: ResponsiveHelper.getFontSize(
+                          context,
+                          tabletSize: 12,
+                          phoneSize: 10,
+                        ),
+                        color: Colors.grey.shade700,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                   const Spacer(),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,

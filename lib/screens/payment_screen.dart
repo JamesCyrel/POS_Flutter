@@ -4,22 +4,25 @@ import '../helpers/responsive_helper.dart';
 class PaymentScreen extends StatefulWidget {
   const PaymentScreen({
     super.key,
-    required this.total,
+    required this.originalTotal,
+    required this.discount,
+    required this.grandTotal,
   });
 
-  final double total;
+  final double originalTotal;
+  final double discount;
+  final double grandTotal;
 
   @override
   State<PaymentScreen> createState() => _PaymentScreenState();
 }
 
 class _PaymentScreenState extends State<PaymentScreen> {
-  final TextEditingController _customerGaveController =
-      TextEditingController();
+  final TextEditingController _customerGaveController = TextEditingController();
 
   double get _change {
     final customerGave = double.tryParse(_customerGaveController.text) ?? 0.0;
-    final change = customerGave - widget.total;
+    final change = customerGave - widget.grandTotal;
     return change < 0 ? 0.0 : change;
   }
 
@@ -32,7 +35,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   void _submitPayment() {
     final customerGave =
         double.tryParse(_customerGaveController.text.trim()) ?? 0.0;
-    if (customerGave < widget.total) {
+    if (customerGave < widget.grandTotal) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Customer payment is less than total'),
@@ -54,52 +57,132 @@ class _PaymentScreenState extends State<PaymentScreen> {
         title: const Text('Payment'),
       ),
       body: Padding(
-        padding: EdgeInsets.all(isTablet ? 24 : 16),
+        padding: EdgeInsets.all(isTablet ? 16 : 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Total (Original)
             Container(
-              padding: EdgeInsets.all(isTablet ? 20 : 16),
-              decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.green.shade200),
+              padding: EdgeInsets.symmetric(
+                horizontal: isTablet ? 12 : 10,
+                vertical: isTablet ? 8 : 6,
               ),
-              child: Column(
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Total',
+                    'Total:',
                     style: TextStyle(
-                      fontSize:
-                          ResponsiveHelper.getFontSize(context, tabletSize: 24, phoneSize: 18),
+                      fontSize: ResponsiveHelper.getFontSize(context,
+                          tabletSize: 16, phoneSize: 14),
                       fontWeight: FontWeight.bold,
+                      color: Colors.blue.shade800,
                     ),
                   ),
-                  const SizedBox(height: 8),
                   Text(
-                    '₱${widget.total.toStringAsFixed(2)}',
+                    '₱${widget.originalTotal.toStringAsFixed(2)}',
                     style: TextStyle(
-                      fontSize:
-                          ResponsiveHelper.getFontSize(context, tabletSize: 36, phoneSize: 28),
+                      fontSize: ResponsiveHelper.getFontSize(context,
+                          tabletSize: 18, phoneSize: 16),
                       fontWeight: FontWeight.bold,
-                      color: Colors.green,
+                      color: Colors.blue.shade800,
                     ),
                   ),
                 ],
               ),
             ),
-            SizedBox(height: isTablet ? 24 : 16),
+            SizedBox(height: isTablet ? 6 : 4),
+            // Discount
+            Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: isTablet ? 12 : 10,
+                vertical: isTablet ? 8 : 6,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Discount:',
+                    style: TextStyle(
+                      fontSize: ResponsiveHelper.getFontSize(context,
+                          tabletSize: 16, phoneSize: 14),
+                      fontWeight: FontWeight.bold,
+                      color: Colors.red.shade800,
+                    ),
+                  ),
+                  Text(
+                    '- ₱${widget.discount.toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontSize: ResponsiveHelper.getFontSize(context,
+                          tabletSize: 18, phoneSize: 16),
+                      fontWeight: FontWeight.bold,
+                      color: Colors.red.shade800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: isTablet ? 6 : 4),
+            // Grand Total
+            Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: isTablet ? 12 : 10,
+                vertical: isTablet ? 10 : 8,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green.shade200, width: 1.5),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Grand Total:',
+                    style: TextStyle(
+                      fontSize: ResponsiveHelper.getFontSize(context,
+                          tabletSize: 18, phoneSize: 16),
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green.shade800,
+                    ),
+                  ),
+                  Text(
+                    '₱${widget.grandTotal.toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontSize: ResponsiveHelper.getFontSize(context,
+                          tabletSize: 22, phoneSize: 20),
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green.shade800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: isTablet ? 16 : 12),
             TextField(
               controller: _customerGaveController,
               decoration: const InputDecoration(
                 labelText: 'Customer Gave',
                 border: OutlineInputBorder(),
                 prefixText: '₱',
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               style: TextStyle(
-                fontSize:
-                    ResponsiveHelper.getFontSize(context, tabletSize: 20, phoneSize: 16),
+                fontSize: ResponsiveHelper.getFontSize(context,
+                    tabletSize: 20, phoneSize: 18),
               ),
               onChanged: (_) => setState(() {}),
             ),
@@ -107,10 +190,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
             Container(
               padding: EdgeInsets.all(isTablet ? 16 : 12),
               decoration: BoxDecoration(
-                color: _change > 0 ? Colors.green.shade50 : Colors.grey.shade200,
+                color: _change >= 0 ? Colors.blue.shade50 : Colors.red.shade50,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: _change > 0 ? Colors.green : Colors.grey,
+                  color: _change >= 0 ? Colors.blue : Colors.red,
                   width: 2,
                 ),
               ),
@@ -118,20 +201,23 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Change',
+                    'Change:',
                     style: TextStyle(
-                      fontSize:
-                          ResponsiveHelper.getFontSize(context, tabletSize: 20, phoneSize: 16),
+                      fontSize: ResponsiveHelper.getFontSize(context,
+                          tabletSize: 24, phoneSize: 20),
                       fontWeight: FontWeight.bold,
+                      color: _change >= 0
+                          ? Colors.blue.shade800
+                          : Colors.red.shade800,
                     ),
                   ),
                   Text(
                     '₱${_change.toStringAsFixed(2)}',
                     style: TextStyle(
-                      fontSize:
-                          ResponsiveHelper.getFontSize(context, tabletSize: 24, phoneSize: 18),
+                      fontSize: ResponsiveHelper.getFontSize(context,
+                          tabletSize: 32, phoneSize: 26),
                       fontWeight: FontWeight.bold,
-                      color: _change > 0 ? Colors.green : Colors.grey,
+                      color: _change >= 0 ? Colors.blue : Colors.red,
                     ),
                   ),
                 ],
@@ -149,8 +235,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 child: Text(
                   'FINALIZE PAYMENT',
                   style: TextStyle(
-                    fontSize:
-                        ResponsiveHelper.getFontSize(context, tabletSize: 22, phoneSize: 16),
+                    fontSize: ResponsiveHelper.getFontSize(context,
+                        tabletSize: 22, phoneSize: 16),
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -162,4 +248,3 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 }
-

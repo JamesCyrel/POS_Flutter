@@ -12,10 +12,39 @@ import 'package:intl/intl.dart';
 class CartItem {
   final Product product;
   int quantity;
+  double? manualDiscountedUnitPrice; // Manual discount override
 
-  CartItem({required this.product, this.quantity = 1});
+  CartItem({
+    required this.product,
+    this.quantity = 1,
+    this.manualDiscountedUnitPrice,
+  });
 
-  double get total => product.price * quantity;
+  // Get the unit price (manual discount or auto discount)
+  double get unitPrice {
+    if (manualDiscountedUnitPrice != null) {
+      return manualDiscountedUnitPrice!;
+    }
+    final discountPercent = product.getDiscountPercent(quantity);
+    return product.price * (1 - (discountPercent / 100));
+  }
+
+  // Get original subtotal (before any discount)
+  double get subtotal => product.price * quantity;
+
+  // Get total with discount applied
+  double get total => unitPrice * quantity;
+
+  // Get discount amount
+  double get discountAmount => subtotal - total;
+
+  // Get discount percentage
+  double get discountPercent {
+    if (product.price <= 0 || unitPrice >= product.price) {
+      return 0.0;
+    }
+    return (1 - (unitPrice / product.price)) * 100;
+  }
 }
 
 /// POS Screen - Point of Sale with barcode scanning
@@ -239,7 +268,17 @@ class _POSScreenState extends State<POSScreen> {
     );
   }
 
-  /// Calculate total amount in cart
+  /// Calculate original total (before discount)
+  double get _originalTotal {
+    return _cart.fold(0.0, (sum, item) => sum + item.subtotal);
+  }
+
+  /// Calculate total discount amount
+  double get _totalDiscount {
+    return _cart.fold(0.0, (sum, item) => sum + item.discountAmount);
+  }
+
+  /// Calculate total amount in cart (after discount)
   double get _cartTotal {
     return _cart.fold(0.0, (sum, item) => sum + item.total);
   }
@@ -420,6 +459,256 @@ class _POSScreenState extends State<POSScreen> {
     });
   }
 
+  /// Edit manual discount for a cart item
+  Future<void> _editManualDiscount(int index) async {
+    final cartItem = _cart[index];
+    final basePrice = cartItem.product.price;
+    final currentUnitPrice = cartItem.unitPrice;
+    var currentDiscountAmount = basePrice - currentUnitPrice;
+    if (currentDiscountAmount < 0) currentDiscountAmount = 0;
+    if (currentDiscountAmount > basePrice) currentDiscountAmount = basePrice;
+    final currentDiscountPercent =
+        basePrice > 0 ? (currentDiscountAmount / basePrice) * 100 : 0.0;
+    final controller = TextEditingController(
+      text: currentDiscountPercent.toStringAsFixed(1),
+    );
+    var isPercentMode = true;
+    final autoUnitPrice = cartItem.product
+                .getDiscountPercent(cartItem.quantity) >
+            0
+        ? cartItem.product.price *
+            (1 - (cartItem.product.getDiscountPercent(cartItem.quantity) / 100))
+        : cartItem.product.price;
+    final rootContext = context;
+
+    double? calculateDiscountedPrice(String input, bool percentMode) {
+      final cleaned = input
+          .replaceAll('₱', '')
+          .replaceAll('%', '')
+          .replaceAll(',', '')
+          .trim();
+      if (cleaned.isEmpty) return null;
+      final value = double.tryParse(cleaned);
+      if (value == null) return null;
+      if (percentMode) {
+        if (value < 0 || value > 100) return null;
+        return basePrice * (1 - (value / 100));
+      }
+      if (value < 0 || value > basePrice) return null;
+      return basePrice - value;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final isTablet = ResponsiveHelper.isTablet(dialogContext);
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            final previewPrice =
+                calculateDiscountedPrice(controller.text, isPercentMode);
+            return AlertDialog(
+              title: const Text('Edit Discount Price'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Product: ${cartItem.product.name}',
+                    style: TextStyle(
+                      fontSize: isTablet ? 16 : 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Original price: ₱${basePrice.toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontSize: isTablet ? 14 : 12,
+                    ),
+                  ),
+                  if (cartItem.manualDiscountedUnitPrice == null &&
+                      autoUnitPrice < basePrice)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Auto discount price: ₱${autoUnitPrice.toStringAsFixed(2)}',
+                        style: TextStyle(
+                          fontSize: isTablet ? 14 : 12,
+                          color: Colors.blue,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      ChoiceChip(
+                        label: const Text('Percent'),
+                        selected: isPercentMode,
+                        onSelected: (selected) {
+                          if (!selected) return;
+                          setDialogState(() {
+                            final price = calculateDiscountedPrice(
+                              controller.text,
+                              isPercentMode,
+                            );
+                            isPercentMode = true;
+                            if (price != null && basePrice > 0) {
+                              final value =
+                                  ((basePrice - price) / basePrice) * 100;
+                              controller.text = value.toStringAsFixed(1);
+                            } else {
+                              controller.text =
+                                  currentDiscountPercent.toStringAsFixed(1);
+                            }
+                            controller.selection = TextSelection.fromPosition(
+                              TextPosition(offset: controller.text.length),
+                            );
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      ChoiceChip(
+                        label: const Text('Peso'),
+                        selected: !isPercentMode,
+                        onSelected: (selected) {
+                          if (!selected) return;
+                          setDialogState(() {
+                            final price = calculateDiscountedPrice(
+                              controller.text,
+                              isPercentMode,
+                            );
+                            isPercentMode = false;
+                            if (price != null) {
+                              final value = basePrice - price;
+                              controller.text = value.toStringAsFixed(2);
+                            } else {
+                              controller.text =
+                                  currentDiscountAmount.toStringAsFixed(2);
+                            }
+                            controller.selection = TextSelection.fromPosition(
+                              TextPosition(offset: controller.text.length),
+                            );
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: isPercentMode
+                          ? 'Discount percent'
+                          : 'Discount amount',
+                      prefixText: isPercentMode ? null : '₱',
+                      suffixText: isPercentMode ? '%' : null,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setDialogState(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  if (previewPrice != null)
+                    Text(
+                      'Final price per item: ₱${previewPrice.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontSize: isTablet ? 14 : 12,
+                        color: Colors.blueGrey,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    )
+                  else
+                    Text(
+                      isPercentMode
+                          ? 'Enter a percent from 0 to 100'
+                          : 'Enter a peso amount up to ₱${basePrice.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontSize: isTablet ? 14 : 12,
+                        color: Colors.red.shade400,
+                      ),
+                    ),
+                  if (previewPrice != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Total for ${cartItem.quantity} items: ₱${(previewPrice * cartItem.quantity).toStringAsFixed(2)}',
+                        style: TextStyle(
+                          fontSize: isTablet ? 12 : 10,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _cart[index].manualDiscountedUnitPrice = null;
+                    });
+                    Navigator.of(dialogContext).pop();
+                  },
+                  child: const Text('Reset to Auto'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final discountedPrice = calculateDiscountedPrice(
+                      controller.text,
+                      isPercentMode,
+                    );
+                    if (discountedPrice == null) {
+                      ScaffoldMessenger.of(rootContext).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            isPercentMode
+                                ? 'Enter a percent from 0 to 100'
+                                : 'Enter a valid peso discount amount',
+                          ),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                      return;
+                    }
+                    if (discountedPrice > basePrice) {
+                      ScaffoldMessenger.of(rootContext).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Discounted price cannot exceed original price',
+                          ),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                      return;
+                    }
+                    if (discountedPrice < 0) {
+                      ScaffoldMessenger.of(rootContext).showSnackBar(
+                        const SnackBar(
+                          content: Text('Discounted price cannot be negative'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                      return;
+                    }
+                    setState(() {
+                      _cart[index].manualDiscountedUnitPrice = discountedPrice;
+                    });
+                    Navigator.of(dialogContext).pop();
+                  },
+                  child: const Text('Apply'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   /// Open payment screen
   Future<void> _openPaymentScreen() async {
     if (_cart.isEmpty) {
@@ -429,17 +718,24 @@ class _POSScreenState extends State<POSScreen> {
       return;
     }
 
-    final total = _cartTotal;
+    final originalTotal = _originalTotal;
+    final discount = _totalDiscount;
+    final grandTotal = _cartTotal;
+
     final customerGave = await Navigator.push<double>(
       context,
       MaterialPageRoute(
-        builder: (context) => PaymentScreen(total: total),
+        builder: (context) => PaymentScreen(
+          originalTotal: originalTotal,
+          discount: discount,
+          grandTotal: grandTotal,
+        ),
       ),
     );
 
     if (customerGave == null) return;
 
-    await _checkout(customerGave, total);
+    await _checkout(customerGave, grandTotal);
   }
 
   /// Process checkout
@@ -479,7 +775,7 @@ class _POSScreenState extends State<POSScreen> {
           .map((item) => {
                 'product_id': item.product.id!,
                 'quantity': item.quantity,
-                'price': item.product.price,
+                'price': item.unitPrice,
               })
           .toList();
 
@@ -706,20 +1002,71 @@ class _POSScreenState extends State<POSScreen> {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        subtitle: Text(
-                          '₱${item.product.price.toStringAsFixed(2)} each',
-                          style: TextStyle(
-                            fontSize: ResponsiveHelper.getFontSize(
-                              context,
-                              tabletSize: 16,
-                              phoneSize: 12,
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '₱${item.product.price.toStringAsFixed(2)} each',
+                              style: TextStyle(
+                                fontSize: ResponsiveHelper.getFontSize(
+                                  context,
+                                  tabletSize: 16,
+                                  phoneSize: 12,
+                                ),
+                              ),
                             ),
-                          ),
+                            if (item.manualDiscountedUnitPrice != null)
+                              Text(
+                                item.discountPercent > 0
+                                    ? 'Manual: ₱${item.unitPrice.toStringAsFixed(2)} each (${item.discountPercent.toStringAsFixed(1)}% off)'
+                                    : 'Manual: ₱${item.unitPrice.toStringAsFixed(2)} each',
+                                style: TextStyle(
+                                  fontSize: ResponsiveHelper.getFontSize(
+                                    context,
+                                    tabletSize: 14,
+                                    phoneSize: 11,
+                                  ),
+                                  color: Colors.blue,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              )
+                            else if (item.discountPercent > 0)
+                              Text(
+                                'Auto: ₱${item.unitPrice.toStringAsFixed(2)} each (${item.discountPercent.toStringAsFixed(1)}% off)',
+                                style: TextStyle(
+                                  fontSize: ResponsiveHelper.getFontSize(
+                                    context,
+                                    tabletSize: 14,
+                                    phoneSize: 11,
+                                  ),
+                                  color: Colors.deepOrange,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            if (item.discountAmount > 0)
+                              Text(
+                                'Saved: ₱${item.discountAmount.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: ResponsiveHelper.getFontSize(
+                                    context,
+                                    tabletSize: 12,
+                                    phoneSize: 10,
+                                  ),
+                                  color: Colors.green.shade700,
+                                ),
+                              ),
+                          ],
                         ),
                         trailing: isTablet
                             ? Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  // Edit discount button
+                                  IconButton(
+                                    icon: const Icon(Icons.edit_outlined),
+                                    tooltip: 'Edit discount price',
+                                    onPressed: () => _editManualDiscount(index),
+                                  ),
                                   // Quantity controls
                                   IconButton(
                                     icon:
@@ -766,6 +1113,18 @@ class _POSScreenState extends State<POSScreen> {
                                   Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
+                                      // Edit discount button
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.edit_outlined,
+                                          size: 20,
+                                        ),
+                                        tooltip: 'Edit discount price',
+                                        onPressed: () =>
+                                            _editManualDiscount(index),
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(),
+                                      ),
                                       IconButton(
                                         icon: const Icon(
                                             Icons.remove_circle_outline,
@@ -832,6 +1191,129 @@ class _POSScreenState extends State<POSScreen> {
                   },
                 ),
         ),
+        // Totals display (compact)
+        if (_cart.isNotEmpty)
+          Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: ResponsiveHelper.isTablet(context) ? 12 : 8,
+              vertical: ResponsiveHelper.isTablet(context) ? 8 : 6,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              border: Border(
+                top: BorderSide(color: Colors.grey.shade300),
+                bottom: BorderSide(color: Colors.grey.shade300),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Total
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Total:',
+                      style: TextStyle(
+                        fontSize: ResponsiveHelper.getFontSize(
+                          context,
+                          tabletSize: 14,
+                          phoneSize: 12,
+                        ),
+                        fontWeight: FontWeight.w600,
+                        color: Colors.blue.shade800,
+                      ),
+                    ),
+                    Text(
+                      '₱${_originalTotal.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontSize: ResponsiveHelper.getFontSize(
+                          context,
+                          tabletSize: 14,
+                          phoneSize: 12,
+                        ),
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+                // Discount
+                if (_totalDiscount > 0) ...[
+                  SizedBox(
+                    height: ResponsiveHelper.isTablet(context) ? 3 : 2,
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Discount:',
+                        style: TextStyle(
+                          fontSize: ResponsiveHelper.getFontSize(
+                            context,
+                            tabletSize: 14,
+                            phoneSize: 12,
+                          ),
+                          fontWeight: FontWeight.w600,
+                          color: Colors.red.shade800,
+                        ),
+                      ),
+                      Text(
+                        '- ₱${_totalDiscount.toStringAsFixed(2)}',
+                        style: TextStyle(
+                          fontSize: ResponsiveHelper.getFontSize(
+                            context,
+                            tabletSize: 14,
+                            phoneSize: 12,
+                          ),
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red.shade800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                // Grand Total
+                SizedBox(
+                  height: ResponsiveHelper.isTablet(context) ? 3 : 2,
+                ),
+                Divider(
+                  color: Colors.grey.shade400,
+                  thickness: 0.5,
+                  height: ResponsiveHelper.isTablet(context) ? 6 : 4,
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Grand Total:',
+                      style: TextStyle(
+                        fontSize: ResponsiveHelper.getFontSize(
+                          context,
+                          tabletSize: 16,
+                          phoneSize: 14,
+                        ),
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green.shade800,
+                      ),
+                    ),
+                    Text(
+                      '₱${_cartTotal.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontSize: ResponsiveHelper.getFontSize(
+                          context,
+                          tabletSize: 18,
+                          phoneSize: 16,
+                        ),
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         // Checkout button
         Container(
           padding: EdgeInsets.all(
@@ -1261,6 +1743,16 @@ class _POSScreenState extends State<POSScreen> {
                                     color: Colors.grey.shade600,
                                   ),
                                 ),
+                                if (product.discountRules.isNotEmpty)
+                                  Text(
+                                    'Discounts: ${product.discountRules.map((r) => '${r.minQty}+ @ ${r.percent}%').join(', ')}',
+                                    style: TextStyle(
+                                      fontSize: isTablet ? 11 : 9,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 Text(
                                   'Stock: ${product.quantity}',
                                   style: TextStyle(
